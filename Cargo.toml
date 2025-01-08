@@ -1,11 +1,20 @@
 [package]
-name = "project-name"
+name = "zitadel-actions-sync"
 version = "0.1.0"
-authors = []
 edition = "2021"
-publish = false
 
 [dependencies]
+as_variant = "1.2.0"
+clap = { version = "4.5.24", features = ["derive", "string"] }
+famedly_rust_utils = { git = "https://github.com/famedly/famedly-rust-utils.git", rev = "288ef077cbddd1114d15468551ce2d94349f7929" }
+futures = "0.3.31"
+reqwest = { version = "0.12.12", features = ["json"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.135"
+serde_yaml = "0.9.34"
+thiserror = "2.0.9"
+tokio = { version = "1.42.0", features = ["macros", "rt", "rt-multi-thread"] }
+url = "2.5.4"
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = ["git", "gitcl", "build"] } # vergen passes metadata like the version and git commit hash to cargo as a compile-time environment variables
