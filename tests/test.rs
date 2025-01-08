@@ -8,11 +8,5 @@
     clippy::unwrap_used
 )]
 
-/*
-use project_name::hello_world;
-
 #[test]
-fn it_says_hello() {
-    hello_world();
-}
-*/
+fn no_test() {}
