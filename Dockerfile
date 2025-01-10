@@ -2,7 +2,7 @@ FROM docker-oss.nexus.famedly.de/rust-container:nightly AS builder
 
 COPY . /app
 WORKDIR /app
-RUN cargo auditable build --release --bins
+RUN cargo auditable build --features cli --release --bins
 
 FROM debian:bookworm-slim
 RUN apt update && apt install ca-certificates -y

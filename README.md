@@ -8,14 +8,9 @@
 [badge-docker-workflow-img]: https://github.com/famedly/rust-project-template/actions/workflows/docker.yml/badge.svg
 [badge-docker-workflow-url]: https://github.com/famedly/rust-project-template/commits/main
 
-A library and a CLI tool to sync/migrate [zitadel actions](https://zitadel.com/docs/apis/actions/introduction).
+A library and a CLI tool to sync/migrate [zitadel actions](https://zitadel.com/docs/apis/actions/introduction) defined in a declarative way.
 
-## Installation
-```sh
-cargo install --path .
-```
-
-## CLI tool usage
+## Data model
 
 The actions are defined in `actions.yaml` file:
 ```yaml
@@ -40,23 +35,50 @@ FLOW_TYPE_EXTERNAL_AUTHENTICATION:
   TRIGGER_TYPE_PRE_CREATION: [action1]
 ```
 
-The action names that are referenced in `flows.yaml` but not referenced in `actions.yaml` are going to be sourced from `actionName.js` files.
+Action names that are referenced in `flows.yaml` but not referenced in `actions.yaml` are presumed
+to be defined in `actionName.js` files.
+
+## Library usage
+
+Depending on the scenario, you need to define the actions and triggers. You can do that statically
+in code by just constructing `Actions<Loaded>` and `Flows` (with the help of `include!` macro) or have
+actions defined in the files and loaded on start. For this scenario you'd need to read `actions.yaml`
+and `flows.yaml`, deserialize them and call `load_actions` which will also load all action files
+that are referenced but lack `script` field in `actions.yaml` file. Then call `sync` function.
+See `run` function in [src/main.rs](src/main.rs) for reference.
+
+You'd also need to implement `ZitadelHandle` for your zitadel client, or your can use
+`simple_zitadel_client` included in this library (doesn't do oauth and token renewals).
+
+
+## CLI tool usage
+
+Install with
+```sh
+cargo install --features cli --path .
+```
 
 To perform sync/migration, run:
 ```sh
-zitadel-actions-sync -t $ZITADEL_ACCESS_TOKEN [OPTIONS]
+zitadel-actions-sync [OPTIONS]
+```
+
+Or run directly from source
+```
+cargo run --features cli -- [OPTIONS]
 ```
 
 Options:
 ```
-  -a, --actions <ACTIONS>  File to read actions from [default: actions.yaml]
-  -f, --flows <FLOWS>      File to read flows from [default: flows.yaml]
-  -d, --dir <DIR>          Directory with actions [default: .]
-  -u, --url <URL>          Zitadel Url [default: localhost:9310]
-  -t, --token <TOKEN>      Zitadel access token
-  -o, --org-id <ORG_ID>    Organization for which perform the sync
-  -h, --help               Print help
-  -V, --version            Print version
+  -a, --actions <ACTIONS>      File to read actions from [default: actions.yaml]
+  -f, --flows <FLOWS>          File to read flows from [default: flows.yaml]
+  -d, --dir <DIR>              Directory with actions [default: .]
+  -u, --url <URL>              Zitadel Url [default: http://localhost:9310]
+  -t, --token <TOKEN>          Zitadel access token [env: ZITADEL_JWT=]
+  -o, --org-id <ORG_ID>        Organization for which perform the sync
+  -l, --log-level <LOG_LEVEL>  Log level <off|trace|debug|warn|error> [env: LOG_LEVEL=] [default: info]
+  -h, --help                   Print help
+  -V, --version                Print version
 ```
 
 ## Pre-commit usage

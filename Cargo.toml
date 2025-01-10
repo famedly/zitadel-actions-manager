@@ -2,18 +2,44 @@
 name = "zitadel-actions-sync"
 version = "0.1.0"
 edition = "2021"
+default-run = "zitadel-actions-sync"
 
 [dependencies]
 as_variant = "1.2.0"
-clap = { version = "4.5.24", features = ["derive", "string"] }
-famedly_rust_utils = { git = "https://github.com/famedly/famedly-rust-utils.git", rev = "288ef077cbddd1114d15468551ce2d94349f7929" }
-reqwest = { version = "0.12.12", features = ["json"] }
+famedly_rust_utils = { version = "0.1.0", git = "https://github.com/famedly/famedly-rust-utils.git" }
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
-serde_yaml = "0.9.34"
 thiserror = "2.0.9"
-tokio = { version = "1.42.0", features = ["macros", "rt", "rt-multi-thread"] }
-url = "2.5.4"
+tracing = "0.1.41"
+tracing-error = "0.2.1"
+trait-variant = "0.1.2"
+serde_yaml = "0.9.34"
+
+# For the CLI tool:
+clap = { version = "4.5.24", features = ["derive", "string", "env"], optional = true }
+reqwest = { version = "0.12.12", features = ["json"], optional = true }
+serde_json = { version = "1.0.135", optional = true }
+tokio = { version = "1.42.0", features = ["macros", "rt", "rt-multi-thread"], optional = true }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"], optional = true }
+url = { version = "2.5.4", optional = true }
+
+[features]
+cli = [
+    "clap",
+    "tokio",
+    "tracing-subscriber",
+    "simple-client"
+]
+simple-client = [
+    "reqwest",
+    "serde_json",
+    "url",
+    "famedly_rust_utils/reqwest",
+]
+
+[[bin]]
+name = "zitadel-actions-sync"
+path = "src/main.rs"
+required-features = ["cli"]
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = ["git", "gitcl", "build"] } # vergen passes metadata like the version and git commit hash to cargo as a compile-time environment variables

@@ -2,10 +2,14 @@
 use std::collections::BTreeMap as Map;
 
 use as_variant::as_variant;
+use famedly_rust_utils::GenericCombinators;
 use serde::{Deserialize, Serialize};
+use tracing::{info, instrument};
 
 use crate::zitadel::*;
 
+#[cfg(feature = "simple-client")]
+pub mod simple_zitadel_client;
 pub mod zitadel;
 
 /// Zitadel action definition
@@ -52,7 +56,7 @@ pub type Actions<Script> = Map<String, ActionEnum<Script>>;
 /// Full set for flows definitions (flows.yaml)
 pub type Flows = Map<String, Map<String, Vec<String>>>;
 
-#[allow(clippy::future_not_send)]
+#[instrument(skip_all, level = "error")]
 pub async fn sync<Z: ZitadelHandle>(
     create_only: bool,
     zitadel: &Z,
@@ -62,11 +66,17 @@ pub async fn sync<Z: ZitadelHandle>(
     // 1. Fetch existing action from zitadel (by names referenced in `actions`)
     let mut pre_existing_actions: Map<String, ActionSearch> = Map::new();
     if !create_only {
+        info!("Fetching all locally defined actions by their names");
         for name in actions.keys() {
             if let Some(action) = zitadel.search_actions_by_name(name).await? {
                 pre_existing_actions.insert(name.clone(), action);
             }
         }
+        info!(
+            "Fetched {} actions out of {} defined locally",
+            pre_existing_actions.len(),
+            actions.len()
+        );
     }
 
     let names_to_delete = actions
@@ -81,31 +91,65 @@ pub async fn sync<Z: ZitadelHandle>(
     let mut existing_actions = Map::new();
     for (name, action) in actions_to_update {
         if let Some(their_action) = pre_existing_actions.remove(&name) {
-            if !action_is_same(&action, &their_action) {
-                zitadel.update_action(&their_action.id, ActionUpdate::new(action)).await?;
+            if action_is_same(&action, &their_action) {
+                info!(%name, action_id = %their_action.id, "Action is unchanged, skipping");
+            } else {
+                info!(%name, action_id = %their_action.id, "Updating action");
+                zitadel
+                    .update_action(&their_action.id, ActionUpdate::new(name.clone(), action))
+                    .await?;
             }
             existing_actions.insert(name, their_action.id);
         } else {
+            info!(%name, "New action detected, creating");
             let action_id = zitadel.create_action(ActionCreate::new(name.clone(), action)).await?;
+            info!(%name, %action_id, "Created action");
             existing_actions.insert(name, action_id);
         }
     }
 
     // 3. Set actions triggers aka "Set trigger actions" in the zitadel doc
     for (flow_type, trigger_types) in flows.into_iter() {
+        // We need to check if triggers have changed, otherwise zitadel call fails
+        let triggers = zitadel.get_triggers(&flow_type).await?;
         for (trigger_type, action_names) in trigger_types.into_iter() {
             let action_ids = action_names
                 .into_iter()
                 .filter_map(|name| Some(existing_actions.get(&name)?.clone()))
-                .collect::<Vec<_>>();
+                .collect::<Vec<_>>()
+                .mutate(|ids| ids.sort()); // TODO: figure out if actions order in a trigger matters
+
+            if let Some(trigger) =
+                triggers.iter().find(|trigger| trigger.trigger_type.id == trigger_type)
+            {
+                if trigger
+                    .actions
+                    .iter()
+                    .map(|action| action.id.clone())
+                    .collect::<Vec<_>>()
+                    .mutate(|ids| ids.sort())
+                    == action_ids
+                {
+                    info!(%flow_type, %trigger_type, ?action_ids, "Triggers are unchanged, skipping");
+                    break;
+                }
+            }
+
+            info!(%flow_type, %trigger_type, ?action_ids, "Setting actions trigger");
             zitadel.set_trigger_actions(&flow_type, &trigger_type, action_ids).await?;
         }
     }
 
     // 4. Delete actions that are marked as `deleted`
-    for id in names_to_delete.into_iter().filter_map(|name| existing_actions.get(&name).cloned()) {
+    for (id, name) in names_to_delete
+        .into_iter()
+        .filter_map(|name| Some((existing_actions.get(&name)?.clone(), name)))
+    {
+        info!(%id, %name, "Deleting action");
         zitadel.delete_action(&id).await?;
     }
+
+    info!("Sync successful");
     Ok(())
 }
 
@@ -148,7 +192,9 @@ pub fn load_actions(
     for action_name in flows.values().flat_map(|x| x.values().flat_map(|v| v.iter())) {
         if let Some(action) = actions.get(action_name) {
             if matches!(action, ActionEnum::Deleted(_)) {
-                panic!("Action `{action_name}` is marked as deleted but is used in flows")
+                return Err(std::io::Error::other(format!(
+                    "Action `{action_name}` is marked as deleted but is used in flows"
+                )));
             }
         } else {
             let loaded_action = ActionEnum::Existing(Action {
@@ -160,4 +206,25 @@ pub fn load_actions(
         }
     }
     Ok(actions)
+}
+
+// TODO: factor out into `famedly_rust_utils`:
+
+#[derive(Debug, thiserror::Error)]
+pub struct Traced<E> {
+    error: E,
+    span: tracing_error::SpanTrace,
+}
+
+use std::fmt;
+
+impl<E: fmt::Display> fmt::Display for Traced<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(f)?;
+        if self.span.status() == tracing_error::SpanTraceStatus::CAPTURED {
+            write!(f, "\nAt:\n")?;
+            self.span.fmt(f)?;
+        }
+        Ok(())
+    }
 }
