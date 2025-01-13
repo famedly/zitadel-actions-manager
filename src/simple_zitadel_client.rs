@@ -25,7 +25,7 @@ pub enum SimpleZitadelClientCreationError {
 impl SimpleZitadelClient {
     pub fn new(
         url: BaseUrl,
-        token: String,
+        token: &str,
         org_id: Option<String>,
     ) -> Result<Self, SimpleZitadelClientCreationError> {
         Ok(Self {
@@ -289,4 +289,36 @@ pub async fn auth_with_service_account(
         .await
         .map_err(E::from)?
         .access_token)
+}
+
+impl SimpleZitadelClient {
+    #[instrument(skip(self), level = "error")]
+    pub async fn get_all_orgs(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Option<Vec<String>>, Traced<SimpleZitadelClientError>> {
+        #[derive(Deserialize)]
+        struct Response {
+            result: Option<Vec<Id>>,
+        }
+        Ok(self
+            .client
+            .post(self.url.join("/v2/organizations/_search").map_err(E::from)?)
+            .json(&serde_json::json!({"query": {
+              "offset": offset,
+              "limit": limit,
+            }}))
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?
+            .json::<Response>()
+            .await
+            .map_err(E::from)?
+            .result
+            .map(|result| result.into_iter().map(|id| id.id).collect()))
+    }
 }

@@ -78,6 +78,7 @@ Options:
   -s, --service-account <PATH>  Zitadel service account file
       --aud <AUD>               Audience to add to zitadel JWT (used with `--service-account`)
   -o, --org-id <ORG_ID>         Organization for which perform the sync
+  -A, --all-orgs                Sync for all orgs
   -l, --log-level <LOG_LEVEL>   Log level <off|trace|debug|warn|error> [env: LOG_LEVEL=] [default: info]
   -h, --help                    Print help
   -V, --version                 Print version

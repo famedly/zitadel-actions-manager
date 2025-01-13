@@ -9,16 +9,18 @@ use clap::Parser;
 use famedly_rust_utils::{BaseUrl, LevelFilter};
 use serde::de::DeserializeOwned;
 use tracing::{info, instrument};
-use zitadel_actions_sync::{
+use zitadel_actions_manager::{
     load_actions,
     simple_zitadel_client::{auth_with_service_account, ServiceAccount, SimpleZitadelClient},
     sync, Actions, Traced,
 };
 
+const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), ", git rev ", env!("VERGEN_GIT_SHA"));
+
 type BoxedErr = Box<dyn std::error::Error>;
 
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(about, version = VERSION)]
 /// A tool to sync/migrate Zitadel actions defined in a declarative way.
 struct Args {
     /// File to read actions from
@@ -53,6 +55,10 @@ struct Args {
     #[arg(short, long)]
     org_id: Option<String>,
 
+    /// Sync for all orgs
+    #[arg(short = 'A', long, default_value_t = false)]
+    all_orgs: bool,
+
     /// Log level <off|trace|debug|warn|error>
     #[arg(short, long, env = "LOG_LEVEL", default_value = "info")]
     log_level: LevelFilter,
@@ -61,15 +67,9 @@ struct Args {
 #[allow(clippy::print_stdout)]
 #[tokio::main]
 async fn main() -> ExitCode {
-    println!(
-        "{} v{}, git rev {}",
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION"),
-        env!("VERGEN_GIT_SHA")
-    );
-
     let args = Args::parse();
     init_tracing(&args.log_level, None);
+    println!("{} {VERSION}", env!("CARGO_PKG_NAME"));
 
     match run(args).await.inspect_err(|e| tracing::error!("{}", e)) {
         Ok(_) => ExitCode::SUCCESS,
@@ -127,12 +127,39 @@ async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
 
     info!("Loading all actions...");
     let loaded_actions = load_actions(&args.dir, actions, &flows).map_err(Traced::map_from)?;
-    let zitadel = SimpleZitadelClient::new(args.url, access_token, args.org_id)
-        .map_err(BoxedErr::from)
-        .map_err(Traced::new)?;
+    let zitadel = SimpleZitadelClient::new(args.url.clone(), &access_token, args.org_id.clone())
+        .map_err(|e| Traced::new(BoxedErr::from(e)))?;
 
     info!("Performing sync...");
-    sync(false, &zitadel, loaded_actions, flows).await.map_err(Traced::map_from)?;
+
+    if args.all_orgs {
+        const PAGE_SIZE: u64 = 100;
+        let mut page = 0;
+        // Using `while let` here results in `future not Send`
+        // FIXME: investigate, possibly compiler bug
+        loop {
+            let Some(org_ids) = zitadel
+                .get_all_orgs(page * PAGE_SIZE, PAGE_SIZE)
+                .await
+                .map_err(Traced::map_from)?
+            else {
+                break;
+            };
+            for org_id in org_ids {
+                let zitadel =
+                    SimpleZitadelClient::new(args.url.clone(), &access_token, Some(org_id.clone()))
+                        .map_err(|e| Traced::new(BoxedErr::from(e)))?;
+                sync(false, Some(org_id), &zitadel, loaded_actions.clone(), flows.clone())
+                    .await
+                    .map_err(Traced::map_from)?;
+            }
+            page += 1;
+        }
+    } else {
+        sync(false, args.org_id, &zitadel, loaded_actions, flows)
+            .await
+            .map_err(Traced::map_from)?;
+    }
     Ok(())
 }
 

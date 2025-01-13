@@ -1,5 +1,5 @@
 [package]
-name = "zitadel-actions-sync"
+name = "zitadel-actions-manager"
 version = "0.1.0"
 edition = "2021"
 default-run = "zitadel-actions-sync"
@@ -8,11 +8,11 @@ default-run = "zitadel-actions-sync"
 as_variant = "1.2.0"
 famedly_rust_utils = { version = "0.1.0", git = "https://github.com/famedly/famedly-rust-utils.git" }
 serde = { version = "1.0.217", features = ["derive"] }
+serde_yaml = "0.9.34"
 thiserror = "2.0.9"
 tracing = "0.1.41"
 tracing-error = "0.2.1"
 trait-variant = "0.1.2"
-serde_yaml = "0.9.34"
 
 # For the CLI tool:
 clap = { version = "4.5.24", features = ["derive", "string", "env"], optional = true }
@@ -27,17 +27,17 @@ url = { version = "2.5.4", optional = true }
 [features]
 cli = [
     "clap",
+    "simple-client",
     "tokio",
     "tracing-subscriber",
-    "simple-client"
 ]
 simple-client = [
     "famedly_rust_utils/reqwest",
     "jsonwebtoken",
     "reqwest",
     "serde_json",
-    "url",
     "time",
+    "url",
 ]
 
 [[bin]]

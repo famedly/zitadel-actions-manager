@@ -56,9 +56,10 @@ pub type Actions<Script> = Map<String, ActionEnum<Script>>;
 /// Full set for flows definitions (flows.yaml)
 pub type Flows = Map<String, Map<String, Vec<String>>>;
 
-#[instrument(skip_all, level = "error")]
+#[instrument(skip_all, level = "error", fields(org_id = org_id))]
 pub async fn sync<Z: ZitadelHandle>(
     create_only: bool,
+    org_id: Option<String>,
     zitadel: &Z,
     actions: Actions<LoadedScript>,
     flows: Flows,
