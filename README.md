@@ -70,15 +70,46 @@ cargo run --features cli -- [OPTIONS]
 
 Options:
 ```
-  -a, --actions <ACTIONS>      File to read actions from [default: actions.yaml]
-  -f, --flows <FLOWS>          File to read flows from [default: flows.yaml]
-  -d, --dir <DIR>              Directory with actions [default: .]
-  -u, --url <URL>              Zitadel Url [default: http://localhost:9310]
-  -t, --token <TOKEN>          Zitadel access token [env: ZITADEL_JWT=]
-  -o, --org-id <ORG_ID>        Organization for which perform the sync
-  -l, --log-level <LOG_LEVEL>  Log level <off|trace|debug|warn|error> [env: LOG_LEVEL=] [default: info]
-  -h, --help                   Print help
-  -V, --version                Print version
+  -a, --actions <PATH>          File to read actions from [default: actions.yaml]
+  -f, --flows <PATH>            File to read flows from [default: flows.yaml]
+  -d, --dir <DIR>               Directory with actions [default: .]
+  -u, --url <URL>               Zitadel Url [default: http://localhost:9310]
+  -t, --token <TOKEN>           Zitadel access token [env: ZITADEL_JWT]
+  -s, --service-account <PATH>  Zitadel service account file
+      --aud <AUD>               Audience to add to zitadel JWT (used with `--service-account`)
+  -o, --org-id <ORG_ID>         Organization for which perform the sync
+  -l, --log-level <LOG_LEVEL>   Log level <off|trace|debug|warn|error> [env: LOG_LEVEL=] [default: info]
+  -h, --help                    Print help
+  -V, --version                 Print version
+```
+
+Example:
+```sh
+docker compose down -v
+mkdir -p /tmp/zitadel-docker-test/
+touch /tmp/zitadel-docker-test/service-account.json
+docker compose up -d
+docker compose wait ultimate_readiness_check
+cargo run --features cli -- \
+    -d example-actions \
+    -s /tmp/zitadel-docker-test/service-account.json \
+    -u http://localhost:9310 \
+    --aud http://localhost:9310
+```
+
+## Testing
+```sh
+mkdir -p /tmp/zitadel-docker-test/
+touch /tmp/zitadel-docker-test/service-account.json
+docker compose down -v
+docker compose up -d
+docker compose wait ultimate_readiness_check
+cargo test
+```
+
+Or all in one:
+```sh
+cargo nextest
 ```
 
 ## Pre-commit usage

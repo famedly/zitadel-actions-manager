@@ -1,5 +1,5 @@
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
-use std::collections::BTreeMap as Map;
+use std::{collections::BTreeMap as Map, fmt, fs::File, io::Error as IoError};
 
 use as_variant::as_variant;
 use famedly_rust_utils::GenericCombinators;
@@ -162,17 +162,22 @@ pub fn load_actions(
     dir: &str,
     actions: Actions<OptionallyLoadedScript>,
     flows: &Flows,
-) -> Result<Actions<LoadedScript>, std::io::Error> {
+) -> Result<Actions<LoadedScript>, Traced<IoError>> {
     use std::io::Read;
     let load_script = |name: &str| {
-        let mut script = String::new();
-        std::fs::File::open(format!("{dir}/{name}.js"))?.read_to_string(&mut script)?;
-        Ok::<_, std::io::Error>(script)
+        tracing::error_span!("load_script", %name).in_scope(|| {
+            let mut script = String::new();
+            File::open(format!("{dir}/{name}.js"))
+                .map_err(Traced::new)?
+                .read_to_string(&mut script)
+                .map_err(Traced::new)?;
+            Ok::<_, Traced<IoError>>(script)
+        })
     };
     let mut actions: Actions<LoadedScript> = actions
         .into_iter()
         .map(|(name, action)| {
-            Ok::<_, std::io::Error>((
+            Ok::<_, Traced<IoError>>((
                 name.clone(),
                 match action {
                     ActionEnum::Existing(action) => {
@@ -192,9 +197,9 @@ pub fn load_actions(
     for action_name in flows.values().flat_map(|x| x.values().flat_map(|v| v.iter())) {
         if let Some(action) = actions.get(action_name) {
             if matches!(action, ActionEnum::Deleted(_)) {
-                return Err(std::io::Error::other(format!(
+                return Err(Traced::new(IoError::other(format!(
                     "Action `{action_name}` is marked as deleted but is used in flows"
-                )));
+                ))));
             }
         } else {
             let loaded_action = ActionEnum::Existing(Action {
@@ -212,11 +217,19 @@ pub fn load_actions(
 
 #[derive(Debug, thiserror::Error)]
 pub struct Traced<E> {
-    error: E,
-    span: tracing_error::SpanTrace,
+    pub error: E,
+    pub span: tracing_error::SpanTrace,
 }
 
-use std::fmt;
+impl<E> Traced<E> {
+    pub fn new(error: E) -> Self {
+        Self { error, span: tracing_error::SpanTrace::capture() }
+    }
+
+    pub fn map_from<Y: From<E>>(self) -> Traced<Y> {
+        Traced { error: self.error.into(), span: self.span }
+    }
+}
 
 impl<E: fmt::Display> fmt::Display for Traced<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -228,3 +241,19 @@ impl<E: fmt::Display> fmt::Display for Traced<E> {
         Ok(())
     }
 }
+
+// until marker traits are stable, (need impls overloading)
+#[macro_export]
+macro_rules! impl_traced_from {
+    ($($t:ty),+) => {
+        $(
+        impl From<$t> for Traced<$t> {
+            fn from(error: $t) -> Self {
+                Self { error, span: tracing_error::SpanTrace::capture() }
+            }
+        }
+        )+
+    }
+}
+
+impl_traced_from!(Box<dyn std::error::Error>);

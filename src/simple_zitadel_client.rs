@@ -1,4 +1,4 @@
-use famedly_rust_utils::{reqwest::*, BaseUrl};
+use famedly_rust_utils::{reqwest::*, BaseUrl, GenericCombinators};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -55,6 +55,8 @@ pub enum SimpleZitadelClientError {
     ReqwestService(#[from] ReqwestErrorWithBody),
     #[error("url parsing failed: {0}")]
     Url(#[from] url::ParseError),
+    #[error("jwt error: {0}")]
+    JWT(#[from] jsonwebtoken::errors::Error),
 }
 
 #[derive(Serialize)]
@@ -62,11 +64,7 @@ struct EmptyBody {}
 
 use crate::Traced;
 
-impl From<SimpleZitadelClientError> for Traced<SimpleZitadelClientError> {
-    fn from(error: SimpleZitadelClientError) -> Self {
-        Self { error, span: tracing_error::SpanTrace::capture() }
-    }
-}
+crate::impl_traced_from!(SimpleZitadelClientError);
 
 /// Short alias to do `.map_err(E::from)?`
 type E = SimpleZitadelClientError;
@@ -232,4 +230,63 @@ impl ZitadelHandle for SimpleZitadelClient {
             .map_err(E::from)?;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceAccount {
+    key_id: String,
+    key: String,
+    user_id: String,
+}
+
+#[instrument(skip(sa, url), fields(%url), level = "error")]
+pub async fn auth_with_service_account(
+    url: &BaseUrl,
+    aud: &str,
+    sa: &ServiceAccount,
+) -> Result<String, Traced<SimpleZitadelClientError>> {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
+    #[derive(Debug, Clone, Deserialize)]
+    struct Response {
+        access_token: String,
+    }
+
+    let now = time::OffsetDateTime::now_utc();
+    let assertion = encode(
+        &Header::new(Algorithm::RS256).mutate(|h| h.kid = Some(sa.key_id.clone())),
+        &serde_json::json!({
+            "aud": [aud],
+            "sub": sa.user_id,
+            "iss": sa.user_id,
+            "exp": (now + std::time::Duration::from_secs(60)).unix_timestamp(),
+            "iat": now.unix_timestamp(),
+        }),
+        &EncodingKey::from_rsa_pem(sa.key.as_bytes()).map_err(E::from)?,
+    )
+    .map_err(E::from)?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
+        .build()
+        .map_err(E::from)?;
+
+    Ok(client
+        .post(url.join("oauth/v2/token").map_err(E::from)?)
+        .form(&[
+            ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+            ("scope", "openid urn:zitadel:iam:org:project:id:zitadel:aud"),
+            ("assertion", &assertion),
+        ])
+        .send()
+        .await
+        .map_err(E::from)?
+        .error_for_status_with_body()
+        .await
+        .map_err(E::from)?
+        .json::<Response>()
+        .await
+        .map_err(E::from)?
+        .access_token)
 }
