@@ -6,7 +6,7 @@ use crate::{Action, LoadedScript};
 
 #[trait_variant::make(ZitadelHandle: Send + Sync)]
 pub trait ZitadelHandlePrototype {
-    type Err;
+    type Err: Send + Sync;
     async fn search_actions_by_name(&self, name: &str) -> Result<Option<ActionSearch>, Self::Err>;
     async fn create_action(&self, action: ActionCreate) -> Result<String, Self::Err>;
     async fn update_action(&self, id: &str, action: ActionUpdate) -> Result<(), Self::Err>;
@@ -66,8 +66,7 @@ pub struct ActionUpdate {
     pub timeout: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_to_fail: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script: Option<String>,
+    pub script: String,
 }
 
 impl ActionUpdate {
@@ -77,7 +76,7 @@ impl ActionUpdate {
             name,
             timeout: action.timeout,
             allowed_to_fail: action.allowed_to_fail,
-            script: Some(action.script),
+            script: action.script,
         }
     }
 }
@@ -101,4 +100,160 @@ pub struct Id {
 pub struct GetTriggersResFlowAction {
     pub trigger_type: Id,
     pub actions: Vec<ActionSearch>,
+}
+
+#[cfg(feature = "zitadel-rust-client")]
+use {
+    crate::{impl_traced_from, Traced},
+    anyhow::{anyhow, Context},
+    famedly_rust_utils::GenericCombinators,
+    futures::stream::StreamExt,
+    zitadel_rust_client::v2::management::*,
+};
+
+#[cfg(feature = "zitadel-rust-client")]
+impl_traced_from!(anyhow::Error);
+
+#[cfg(feature = "zitadel-rust-client")]
+impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
+    type Err = Traced<anyhow::Error>;
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn search_actions_by_name(&self, name: &str) -> Result<Option<ActionSearch>, Self::Err> {
+        // TODO: explicitly set TEXT_QUERY_METHOD_EQUALS
+        Ok(self
+            .as_ref()
+            .search_actions(ListActionsRequest::new(vec![V1ActionQuery::new()
+                .with_action_name_query(V1ActionNameQuery::new().with_name(name.into()))]))?
+            .next()
+            .await
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(|f| anyhow!("Response missing {f} field"))?)
+    }
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn create_action(&self, action: ActionCreate) -> Result<String, Self::Err> {
+        Ok(self
+            .as_ref()
+            .create_action(action.into())
+            .await?
+            .id()
+            .cloned()
+            .context("Response missing id field")?)
+    }
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn update_action(&self, id: &str, action: ActionUpdate) -> Result<(), Self::Err> {
+        self.as_ref().update_action(id.into(), action.into()).await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn delete_action(&self, id: &str) -> Result<(), Self::Err> {
+        self.as_ref().delete_action(id.into()).await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn get_triggers(
+        &self,
+        flow_type: &str,
+    ) -> Result<Vec<GetTriggersResFlowAction>, Self::Err> {
+        let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
+        Ok(from_flow_response(self.as_ref().get_flow(flow_type).await?)
+            .map_err(|f| anyhow!("Response missing {f} field"))?)
+    }
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn set_trigger_actions(
+        &self,
+        flow_type: &str,
+        trigger_type: &str,
+        action_ids: Vec<String>,
+    ) -> Result<(), Self::Err> {
+        let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
+        let trigger_type = trigger_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
+        self.as_ref()
+            .set_trigger_actions(
+                flow_type,
+                trigger_type,
+                ManagementServiceSetTriggerActionsBody::new().with_action_ids(action_ids),
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "zitadel-rust-client")]
+const FLOW_TRIGGER_FORMAT_ERR: &str =
+    "zitadel_rust_client backend doesn't support non-numeric flow and trigger types";
+
+#[cfg(feature = "zitadel-rust-client")]
+impl TryFrom<V1Action> for ActionSearch {
+    type Error = &'static str;
+    fn try_from(a: V1Action) -> Result<ActionSearch, Self::Error> {
+        Ok(ActionSearch {
+            id: a.id().ok_or("id")?.into(),
+            name: a.name().ok_or("name")?.into(),
+            timeout: a.timeout().cloned(),
+            allowed_to_fail: a.allowed_to_fail().copied(),
+            script: a.script().ok_or("script")?.into(),
+        })
+    }
+}
+
+#[cfg(feature = "zitadel-rust-client")]
+impl From<ActionCreate> for V1CreateActionRequest {
+    fn from(a: ActionCreate) -> Self {
+        Self::new(a.name, a.script)
+            .chain_opt(a.timeout, Self::with_timeout)
+            .chain_opt(a.allowed_to_fail, Self::with_allowed_to_fail)
+    }
+}
+
+#[cfg(feature = "zitadel-rust-client")]
+impl From<ActionUpdate> for ManagementServiceUpdateActionBody {
+    fn from(a: ActionUpdate) -> Self {
+        Self::new(a.name, a.script)
+            .chain_opt(a.timeout, Self::with_timeout)
+            .chain_opt(a.allowed_to_fail, Self::with_allowed_to_fail)
+    }
+}
+
+#[cfg(feature = "zitadel-rust-client")]
+fn from_flow_response(a: V1GetFlowResponse) -> Result<Vec<GetTriggersResFlowAction>, String> {
+    let flow = a.flow().ok_or("flow")?;
+    flow.trigger_actions().map_or_else(
+        || Ok(Vec::new()),
+        |trigger_actions| {
+            trigger_actions
+                .iter()
+                .map(|trigger_action| {
+                    Ok(GetTriggersResFlowAction {
+                        trigger_type: Id {
+                            id: trigger_action
+                                .trigger_type()
+                                .ok_or("trigger_type")?
+                                .id()
+                                .ok_or("trigger_type.id")?
+                                .into(),
+                        },
+                        actions: trigger_action.actions().map_or_else(
+                            || Ok(Vec::new()),
+                            |actions| {
+                                actions
+                                    .iter()
+                                    .cloned()
+                                    .map(TryInto::try_into)
+                                    .collect::<Result<Vec<_>, _>>()
+                                    .map_err(|f| ["actions", f].join("."))
+                            },
+                        )?,
+                    })
+                })
+                .collect::<Result<_, String>>()
+                .map_err(|f| ["flow", "trigger_actions", &f].join("."))
+        },
+    )
 }

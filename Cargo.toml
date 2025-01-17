@@ -24,6 +24,11 @@ tokio = { version = "1.42.0", features = ["macros", "rt", "rt-multi-thread"], op
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"], optional = true }
 url = { version = "2.5.4", optional = true }
 
+# For zitadel-rust-client:
+anyhow = { version = "1.0.95", optional = true }
+futures = { version = "0.3.31", optional = true }
+zitadel-rust-client = { git = "https://github.com/famedly/zitadel-rust-client.git", optional = true }
+
 [features]
 cli = [
     "clap",
@@ -38,6 +43,11 @@ simple-client = [
     "serde_json",
     "time",
     "url",
+]
+zitadel-rust-client = [
+    "dep:zitadel-rust-client",
+    "anyhow",
+    "futures",
 ]
 
 [[bin]]
