@@ -6,7 +6,7 @@ default-run = "zitadel-actions-sync"
 
 [dependencies]
 as_variant = "1.2.0"
-famedly_rust_utils = { version = "0.1.0", git = "https://github.com/famedly/famedly-rust-utils.git" }
+famedly_rust_utils = "0.2.0"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_yaml = "0.9.34"
 thiserror = "2.0.9"

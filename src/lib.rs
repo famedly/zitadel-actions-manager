@@ -208,7 +208,7 @@ pub fn load_actions(
                 allowed_to_fail: None,
                 script: load_script(action_name)?,
             });
-            actions.insert(action_name.clone(), loaded_action);
+            actions.insert(action_name.to_owned(), loaded_action);
         }
     }
     Ok(actions)
