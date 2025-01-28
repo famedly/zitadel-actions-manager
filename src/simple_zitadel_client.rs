@@ -2,6 +2,7 @@ use famedly_rust_utils::{reqwest::*, BaseUrl, GenericCombinators};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
+use super::HEADER_ZITADEL_ORGANIZATION_ID;
 use crate::zitadel::*;
 
 /// Simple client that requires access token. This client does not do oauth and
@@ -87,7 +88,11 @@ impl ZitadelHandle for SimpleZitadelClient {
     type Err = Traced<SimpleZitadelClientError>;
 
     #[instrument(skip(self), level = "error")]
-    async fn search_actions_by_name(&self, name: &str) -> Result<Option<ActionSearch>, Self::Err> {
+    async fn search_actions_by_name(
+        &self,
+        name: &str,
+        org_id: Option<String>,
+    ) -> Result<Option<ActionSearch>, Self::Err> {
         #[derive(Deserialize)]
         struct Response {
             result: Option<Vec<ActionSearch>>,
@@ -95,6 +100,7 @@ impl ZitadelHandle for SimpleZitadelClient {
         Ok(self
             .client
             .post(self.url.join("management/v1/actions/_search").map_err(E::from)?)
+            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&serde_json::json!({
               "query": { "limit": 1 },
               "queries": [
@@ -120,7 +126,11 @@ impl ZitadelHandle for SimpleZitadelClient {
     }
 
     #[instrument(skip(self), level = "error")]
-    async fn create_action(&self, action: ActionCreate) -> Result<String, Self::Err> {
+    async fn create_action(
+        &self,
+        action: ActionCreate,
+        org_id: Option<String>,
+    ) -> Result<String, Self::Err> {
         #[derive(Deserialize)]
         struct Response {
             id: String,
@@ -128,6 +138,7 @@ impl ZitadelHandle for SimpleZitadelClient {
         Ok(self
             .client
             .post(self.url.join("management/v1/actions").map_err(E::from)?)
+            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&action)
             .send()
             .await
@@ -142,7 +153,12 @@ impl ZitadelHandle for SimpleZitadelClient {
     }
 
     #[instrument(skip(self), level = "error")]
-    async fn update_action(&self, id: &str, action: ActionUpdate) -> Result<(), Self::Err> {
+    async fn update_action(
+        &self,
+        id: &str,
+        action: ActionUpdate,
+        org_id: Option<String>,
+    ) -> Result<(), Self::Err> {
         self.client
             .put(
                 self.url
@@ -151,6 +167,7 @@ impl ZitadelHandle for SimpleZitadelClient {
                     .join(id)
                     .map_err(E::from)?,
             )
+            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&action)
             .send()
             .await
@@ -162,7 +179,7 @@ impl ZitadelHandle for SimpleZitadelClient {
     }
 
     #[instrument(skip(self), level = "error")]
-    async fn delete_action(&self, id: &str) -> Result<(), Self::Err> {
+    async fn delete_action(&self, id: &str, org_id: Option<String>) -> Result<(), Self::Err> {
         self.client
             .delete(
                 self.url
@@ -171,6 +188,7 @@ impl ZitadelHandle for SimpleZitadelClient {
                     .join(id)
                     .map_err(E::from)?,
             )
+            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&EmptyBody {})
             .send()
             .await
@@ -185,6 +203,7 @@ impl ZitadelHandle for SimpleZitadelClient {
     async fn get_triggers(
         &self,
         flow_type: &str,
+        org_id: Option<String>,
     ) -> Result<Vec<GetTriggersResFlowAction>, Self::Err> {
         Ok(self
             .client
@@ -195,6 +214,7 @@ impl ZitadelHandle for SimpleZitadelClient {
                     .join(flow_type)
                     .map_err(E::from)?,
             )
+            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .send()
             .await
             .map_err(E::from)?
@@ -214,6 +234,7 @@ impl ZitadelHandle for SimpleZitadelClient {
         flow_type: &str,
         trigger_type: &str,
         action_ids: Vec<String>,
+        org_id: Option<String>,
     ) -> Result<(), Self::Err> {
         self.client
             .post(
@@ -221,6 +242,7 @@ impl ZitadelHandle for SimpleZitadelClient {
                     .join(&format!("management/v1/flows/{flow_type}/trigger/{trigger_type}"))
                     .map_err(E::from)?,
             )
+            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&serde_json::json!({"actionIds": action_ids}))
             .send()
             .await

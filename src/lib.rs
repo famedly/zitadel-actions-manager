@@ -8,6 +8,9 @@ use tracing::{info, instrument};
 
 use crate::zitadel::*;
 
+/// Header for Zitadel organization ID
+pub const HEADER_ZITADEL_ORGANIZATION_ID: &str = "x-zitadel-orgid";
+
 #[cfg(feature = "simple-client")]
 pub mod simple_zitadel_client;
 pub mod zitadel;
@@ -69,7 +72,7 @@ pub async fn sync<Z: ZitadelHandle>(
     if !create_only {
         info!("Fetching all locally defined actions by their names");
         for name in actions.keys() {
-            if let Some(action) = zitadel.search_actions_by_name(name).await? {
+            if let Some(action) = zitadel.search_actions_by_name(name, org_id.clone()).await? {
                 pre_existing_actions.insert(name.clone(), action);
             }
         }
@@ -97,13 +100,19 @@ pub async fn sync<Z: ZitadelHandle>(
             } else {
                 info!(%name, action_id = %their_action.id, "Updating action");
                 zitadel
-                    .update_action(&their_action.id, ActionUpdate::new(name.clone(), action))
+                    .update_action(
+                        &their_action.id,
+                        ActionUpdate::new(name.clone(), action),
+                        org_id.clone(),
+                    )
                     .await?;
             }
             existing_actions.insert(name, their_action.id);
         } else {
             info!(%name, "New action detected, creating");
-            let action_id = zitadel.create_action(ActionCreate::new(name.clone(), action)).await?;
+            let action_id = zitadel
+                .create_action(ActionCreate::new(name.clone(), action), org_id.clone())
+                .await?;
             info!(%name, %action_id, "Created action");
             existing_actions.insert(name, action_id);
         }
@@ -112,7 +121,7 @@ pub async fn sync<Z: ZitadelHandle>(
     // 3. Set actions triggers aka "Set trigger actions" in the zitadel doc
     for (flow_type, trigger_types) in flows.into_iter() {
         // We need to check if triggers have changed, otherwise zitadel call fails
-        let triggers = zitadel.get_triggers(&flow_type).await?;
+        let triggers = zitadel.get_triggers(&flow_type, org_id.clone()).await?;
         for (trigger_type, action_names) in trigger_types.into_iter() {
             let action_ids = action_names
                 .into_iter()
@@ -137,7 +146,9 @@ pub async fn sync<Z: ZitadelHandle>(
             }
 
             info!(%flow_type, %trigger_type, ?action_ids, "Setting actions trigger");
-            zitadel.set_trigger_actions(&flow_type, &trigger_type, action_ids).await?;
+            zitadel
+                .set_trigger_actions(&flow_type, &trigger_type, action_ids, org_id.clone())
+                .await?;
         }
     }
 
@@ -147,7 +158,7 @@ pub async fn sync<Z: ZitadelHandle>(
         .filter_map(|name| Some((existing_actions.get(&name)?.clone(), name)))
     {
         info!(%id, %name, "Deleting action");
-        zitadel.delete_action(&id).await?;
+        zitadel.delete_action(&id, org_id.clone()).await?;
     }
 
     info!("Sync successful");

@@ -7,14 +7,28 @@ use crate::{Action, LoadedScript};
 #[trait_variant::make(ZitadelHandle: Send + Sync)]
 pub trait ZitadelHandlePrototype {
     type Err: Send + Sync;
-    async fn search_actions_by_name(&self, name: &str) -> Result<Option<ActionSearch>, Self::Err>;
-    async fn create_action(&self, action: ActionCreate) -> Result<String, Self::Err>;
-    async fn update_action(&self, id: &str, action: ActionUpdate) -> Result<(), Self::Err>;
-    async fn delete_action(&self, id: &str) -> Result<(), Self::Err>;
+    async fn search_actions_by_name(
+        &self,
+        name: &str,
+        org_id: Option<String>,
+    ) -> Result<Option<ActionSearch>, Self::Err>;
+    async fn create_action(
+        &self,
+        action: ActionCreate,
+        org_id: Option<String>,
+    ) -> Result<String, Self::Err>;
+    async fn update_action(
+        &self,
+        id: &str,
+        action: ActionUpdate,
+        org_id: Option<String>,
+    ) -> Result<(), Self::Err>;
+    async fn delete_action(&self, id: &str, org_id: Option<String>) -> Result<(), Self::Err>;
 
     async fn get_triggers(
         &self,
         flow_type: &str,
+        org_id: Option<String>,
     ) -> Result<Vec<GetTriggersResFlowAction>, Self::Err>;
 
     async fn set_trigger_actions(
@@ -22,6 +36,7 @@ pub trait ZitadelHandlePrototype {
         flow_type: &str,
         trigger_type: &str,
         action_ids: Vec<String>,
+        org_id: Option<String>,
     ) -> Result<(), Self::Err>;
 }
 
@@ -119,12 +134,19 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
     type Err = Traced<anyhow::Error>;
 
     #[tracing::instrument(skip(self), level = "error")]
-    async fn search_actions_by_name(&self, name: &str) -> Result<Option<ActionSearch>, Self::Err> {
+    async fn search_actions_by_name(
+        &self,
+        name: &str,
+        org_id: Option<String>,
+    ) -> Result<Option<ActionSearch>, Self::Err> {
         // TODO: explicitly set TEXT_QUERY_METHOD_EQUALS
         Ok(self
             .as_ref()
-            .search_actions(ListActionsRequest::new(vec![V1ActionQuery::new()
-                .with_action_name_query(V1ActionNameQuery::new().with_name(name.into()))]))?
+            .list_actions(
+                ListActionsRequest::new(vec![V1ActionQuery::new()
+                    .with_action_name_query(V1ActionNameQuery::new().with_name(name.into()))]),
+                org_id,
+            )?
             .next()
             .await
             .map(TryInto::try_into)
@@ -133,10 +155,14 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
     }
 
     #[tracing::instrument(skip(self), level = "error")]
-    async fn create_action(&self, action: ActionCreate) -> Result<String, Self::Err> {
+    async fn create_action(
+        &self,
+        action: ActionCreate,
+        org_id: Option<String>,
+    ) -> Result<String, Self::Err> {
         Ok(self
             .as_ref()
-            .create_action(action.into())
+            .create_action(action.into(), org_id)
             .await?
             .id()
             .cloned()
@@ -144,14 +170,19 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
     }
 
     #[tracing::instrument(skip(self), level = "error")]
-    async fn update_action(&self, id: &str, action: ActionUpdate) -> Result<(), Self::Err> {
-        self.as_ref().update_action(id.into(), action.into()).await?;
+    async fn update_action(
+        &self,
+        id: &str,
+        action: ActionUpdate,
+        org_id: Option<String>,
+    ) -> Result<(), Self::Err> {
+        self.as_ref().update_action(id.into(), action.into(), org_id).await?;
         Ok(())
     }
 
     #[tracing::instrument(skip(self), level = "error")]
-    async fn delete_action(&self, id: &str) -> Result<(), Self::Err> {
-        self.as_ref().delete_action(id.into()).await?;
+    async fn delete_action(&self, id: &str, org_id: Option<String>) -> Result<(), Self::Err> {
+        self.as_ref().delete_action(id.into(), org_id).await?;
         Ok(())
     }
 
@@ -159,9 +190,10 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
     async fn get_triggers(
         &self,
         flow_type: &str,
+        org_id: Option<String>,
     ) -> Result<Vec<GetTriggersResFlowAction>, Self::Err> {
         let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
-        Ok(from_flow_response(self.as_ref().get_flow(flow_type).await?)
+        Ok(from_flow_response(self.as_ref().get_flow(flow_type, org_id).await?)
             .map_err(|f| anyhow!("Response missing {f} field"))?)
     }
 
@@ -171,6 +203,7 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
         flow_type: &str,
         trigger_type: &str,
         action_ids: Vec<String>,
+        org_id: Option<String>,
     ) -> Result<(), Self::Err> {
         let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
         let trigger_type = trigger_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
@@ -179,6 +212,7 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
                 flow_type,
                 trigger_type,
                 ManagementServiceSetTriggerActionsBody::new().with_action_ids(action_ids),
+                org_id,
             )
             .await?;
         Ok(())
