@@ -1,18 +1,13 @@
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
-use std::{
-    fs::File,
-    path::{Path, PathBuf},
-    process::ExitCode,
-};
+use std::{path::PathBuf, process::ExitCode};
 
 use clap::Parser;
 use famedly_rust_utils::{BaseUrl, LevelFilter};
-use serde::de::DeserializeOwned;
-use tracing::{info, instrument};
+use tracing::info;
 use zitadel_actions_manager::{
-    load_actions,
+    from_yaml_file, load,
     simple_zitadel_client::{auth_with_service_account, ServiceAccount, SimpleZitadelClient},
-    sync, Actions, Traced,
+    sync, Traced, DEFAULT_ACTIONS_FILE, DEFAULT_FLOWS_FILE,
 };
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), ", git rev ", env!("VERGEN_GIT_SHA"));
@@ -24,11 +19,11 @@ type BoxedErr = Box<dyn std::error::Error>;
 /// A tool to sync/migrate Zitadel actions defined in a declarative way.
 struct Args {
     /// File to read actions from
-    #[arg(short, long, default_value = "actions.yaml", value_name = "PATH")]
+    #[arg(short, long, default_value = DEFAULT_ACTIONS_FILE, value_name = "PATH")]
     actions: String,
 
     /// File to read flows from
-    #[arg(short, long, default_value = "flows.yaml", value_name = "PATH")]
+    #[arg(short, long, default_value = DEFAULT_FLOWS_FILE, value_name = "PATH")]
     flows: String,
 
     /// Directory with actions
@@ -91,31 +86,18 @@ async fn test_binary() -> Result<(), Traced<BoxedErr>> {
     .inspect_err(|e| tracing::error!("{e}"))
 }
 
-#[instrument(level = "error")]
-fn from_yaml_file<T: DeserializeOwned, P: std::fmt::Debug + AsRef<Path>>(
-    path: P,
-) -> Result<T, Traced<BoxedErr>> {
-    Ok(serde_yaml::from_reader(File::open(path).map_err(BoxedErr::from)?)
-        .map_err(BoxedErr::from)?)
-}
-
 async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
-    let flows_fname = [args.dir.as_str(), &args.flows].join("/");
-    let actions_fname = [args.dir.as_str(), &args.actions].join("/");
-    let flows = from_yaml_file(&flows_fname)?;
-
-    let actions = if std::fs::exists(&actions_fname).map_err(BoxedErr::from)? {
-        from_yaml_file(&actions_fname)?
-    } else {
-        info!("File {actions_fname:?} doesn't exist, reading only actions referenced in {flows_fname:?}");
-        Actions::default()
-    };
+    info!("Loading all actions...");
+    let (loaded_actions, flows) =
+        load(args.dir.as_ref(), Some(args.actions.as_ref()), Some(args.flows.as_ref()))
+            .map_err(BoxedErr::from)?;
 
     let access_token = if let Some(svc_acc_file) = args.service_account {
         let aud = args.aud.ok_or_else(|| {
             boxed_text_err("--aud must be specified along with --service-account")
         })?;
-        let service_account: ServiceAccount = from_yaml_file(&svc_acc_file)?;
+        let service_account: ServiceAccount =
+            from_yaml_file(&svc_acc_file).map_err(BoxedErr::from)?;
         auth_with_service_account(&args.url, &aud, &service_account)
             .await
             .map_err(Traced::map_from)?
@@ -125,8 +107,6 @@ async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
         })?
     };
 
-    info!("Loading all actions...");
-    let loaded_actions = load_actions(&args.dir, actions, &flows).map_err(Traced::map_from)?;
     let zitadel = SimpleZitadelClient::new(args.url.clone(), &access_token, args.org_id.clone())
         .map_err(|e| Traced::new(BoxedErr::from(e)))?;
 
@@ -149,16 +129,14 @@ async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
                 let zitadel =
                     SimpleZitadelClient::new(args.url.clone(), &access_token, Some(org_id.clone()))
                         .map_err(|e| Traced::new(BoxedErr::from(e)))?;
-                sync(false, Some(org_id), &zitadel, loaded_actions.clone(), flows.clone())
+                sync(Some(org_id), &zitadel, loaded_actions.clone(), flows.clone())
                     .await
                     .map_err(Traced::map_from)?;
             }
             page += 1;
         }
     } else {
-        sync(false, args.org_id, &zitadel, loaded_actions, flows)
-            .await
-            .map_err(Traced::map_from)?;
+        sync(args.org_id, &zitadel, loaded_actions, flows).await.map_err(Traced::map_from)?;
     }
     Ok(())
 }

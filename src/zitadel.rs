@@ -4,19 +4,35 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Action, LoadedScript};
 
-#[trait_variant::make(ZitadelHandle: Send + Sync)]
-pub trait ZitadelHandlePrototype {
+pub trait ZitadelInterface {
     type Err: Send + Sync;
-    async fn search_actions_by_name(
-        &self,
-        name: &str,
-        org_id: Option<String>,
-    ) -> Result<Option<ActionSearch>, Self::Err>;
+}
+
+#[trait_variant::make(ZitadelHandleCreateOnly: Send + Sync)]
+pub trait ZitadelHandleCreateOnlyPrototype: ZitadelInterface {
     async fn create_action(
         &self,
         action: ActionCreate,
         org_id: Option<String>,
     ) -> Result<String, Self::Err>;
+
+    async fn set_trigger_actions(
+        &self,
+        flow_type: &str,
+        trigger_type: &str,
+        action_ids: Vec<String>,
+        org_id: Option<String>,
+    ) -> Result<(), Self::Err>;
+}
+
+#[trait_variant::make(ZitadelHandle: Send + Sync)]
+pub trait ZitadelHandlePrototype: ZitadelHandleCreateOnly + ZitadelInterface {
+    async fn search_actions_by_name(
+        &self,
+        name: &str,
+        org_id: Option<String>,
+    ) -> Result<Option<ActionSearch>, Self::Err>;
+
     async fn update_action(
         &self,
         id: &str,
@@ -30,14 +46,6 @@ pub trait ZitadelHandlePrototype {
         flow_type: &str,
         org_id: Option<String>,
     ) -> Result<Vec<GetTriggersResFlowAction>, Self::Err>;
-
-    async fn set_trigger_actions(
-        &self,
-        flow_type: &str,
-        trigger_type: &str,
-        action_ids: Vec<String>,
-        org_id: Option<String>,
-    ) -> Result<(), Self::Err>;
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -130,9 +138,51 @@ use {
 impl_traced_from!(anyhow::Error);
 
 #[cfg(feature = "zitadel-rust-client")]
-impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
+impl ZitadelInterface for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
     type Err = Traced<anyhow::Error>;
+}
 
+#[cfg(feature = "zitadel-rust-client")]
+impl ZitadelHandleCreateOnly for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn create_action(
+        &self,
+        action: ActionCreate,
+        org_id: Option<String>,
+    ) -> Result<String, Self::Err> {
+        Ok(self
+            .as_ref()
+            .create_action(action.into(), org_id)
+            .await?
+            .id()
+            .cloned()
+            .context("Response missing id field")?)
+    }
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn set_trigger_actions(
+        &self,
+        flow_type: &str,
+        trigger_type: &str,
+        action_ids: Vec<String>,
+        org_id: Option<String>,
+    ) -> Result<(), Self::Err> {
+        let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
+        let trigger_type = trigger_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
+        self.as_ref()
+            .set_trigger_actions(
+                flow_type,
+                trigger_type,
+                ManagementServiceSetTriggerActionsBody::new().with_action_ids(action_ids),
+                org_id,
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "zitadel-rust-client")]
+impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
     #[tracing::instrument(skip(self), level = "error")]
     async fn search_actions_by_name(
         &self,
@@ -152,21 +202,6 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
             .map(TryInto::try_into)
             .transpose()
             .map_err(|f| anyhow!("Response missing {f} field"))?)
-    }
-
-    #[tracing::instrument(skip(self), level = "error")]
-    async fn create_action(
-        &self,
-        action: ActionCreate,
-        org_id: Option<String>,
-    ) -> Result<String, Self::Err> {
-        Ok(self
-            .as_ref()
-            .create_action(action.into(), org_id)
-            .await?
-            .id()
-            .cloned()
-            .context("Response missing id field")?)
     }
 
     #[tracing::instrument(skip(self), level = "error")]
@@ -195,27 +230,6 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
         let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
         Ok(from_flow_response(self.as_ref().get_flow(flow_type, org_id).await?)
             .map_err(|f| anyhow!("Response missing {f} field"))?)
-    }
-
-    #[tracing::instrument(skip(self), level = "error")]
-    async fn set_trigger_actions(
-        &self,
-        flow_type: &str,
-        trigger_type: &str,
-        action_ids: Vec<String>,
-        org_id: Option<String>,
-    ) -> Result<(), Self::Err> {
-        let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
-        let trigger_type = trigger_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
-        self.as_ref()
-            .set_trigger_actions(
-                flow_type,
-                trigger_type,
-                ManagementServiceSetTriggerActionsBody::new().with_action_ids(action_ids),
-                org_id,
-            )
-            .await?;
-        Ok(())
     }
 }
 

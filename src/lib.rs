@@ -1,15 +1,15 @@
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
-use std::{collections::BTreeMap as Map, fmt, fs::File, io::Error as IoError};
+use std::{collections::BTreeMap as Map, fmt, fs::File, io::Error as IoError, path::Path};
 
 use as_variant::as_variant;
 use famedly_rust_utils::GenericCombinators;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{info, instrument};
 
 use crate::zitadel::*;
 
-/// Header for Zitadel organization ID
-pub const HEADER_ZITADEL_ORGANIZATION_ID: &str = "x-zitadel-orgid";
+pub const DEFAULT_ACTIONS_FILE: &str = "actions.yaml";
+pub const DEFAULT_FLOWS_FILE: &str = "flows.yaml";
 
 #[cfg(feature = "simple-client")]
 pub mod simple_zitadel_client;
@@ -61,7 +61,6 @@ pub type Flows = Map<String, Map<String, Vec<String>>>;
 
 #[instrument(skip_all, level = "error", fields(org_id = org_id))]
 pub async fn sync<Z: ZitadelHandle>(
-    create_only: bool,
     org_id: Option<String>,
     zitadel: &Z,
     actions: Actions<LoadedScript>,
@@ -69,19 +68,17 @@ pub async fn sync<Z: ZitadelHandle>(
 ) -> Result<(), Z::Err> {
     // 1. Fetch existing action from zitadel (by names referenced in `actions`)
     let mut pre_existing_actions: Map<String, ActionSearch> = Map::new();
-    if !create_only {
-        info!("Fetching all locally defined actions by their names");
-        for name in actions.keys() {
-            if let Some(action) = zitadel.search_actions_by_name(name, org_id.clone()).await? {
-                pre_existing_actions.insert(name.clone(), action);
-            }
+    info!("Fetching all locally defined actions by their names");
+    for name in actions.keys() {
+        if let Some(action) = zitadel.search_actions_by_name(name, org_id.clone()).await? {
+            pre_existing_actions.insert(name.clone(), action);
         }
-        info!(
-            "Fetched {} actions out of {} defined locally",
-            pre_existing_actions.len(),
-            actions.len()
-        );
     }
+    info!(
+        "Fetched {} actions out of {} defined locally",
+        pre_existing_actions.len(),
+        actions.len()
+    );
 
     let names_to_delete = actions
         .iter()
@@ -121,7 +118,8 @@ pub async fn sync<Z: ZitadelHandle>(
     // 3. Set actions triggers aka "Set trigger actions" in the zitadel doc
     for (flow_type, trigger_types) in flows.into_iter() {
         // We need to check if triggers have changed, otherwise zitadel call fails
-        let triggers = zitadel.get_triggers(&flow_type, org_id.clone()).await?;
+        let existing_triggers = zitadel.get_triggers(&flow_type, org_id.clone()).await?;
+
         for (trigger_type, action_names) in trigger_types.into_iter() {
             let action_ids = action_names
                 .into_iter()
@@ -130,7 +128,7 @@ pub async fn sync<Z: ZitadelHandle>(
                 .mutate(|ids| ids.sort()); // TODO: figure out if actions order in a trigger matters
 
             if let Some(trigger) =
-                triggers.iter().find(|trigger| trigger.trigger_type.id == trigger_type)
+                existing_triggers.iter().find(|trigger| trigger.trigger_type.id == trigger_type)
             {
                 if trigger
                     .actions
@@ -141,7 +139,7 @@ pub async fn sync<Z: ZitadelHandle>(
                     == action_ids
                 {
                     info!(%flow_type, %trigger_type, ?action_ids, "Triggers are unchanged, skipping");
-                    break;
+                    continue;
                 }
             }
 
@@ -165,13 +163,88 @@ pub async fn sync<Z: ZitadelHandle>(
     Ok(())
 }
 
+/// This should be used only for newly created organizations or fresh instances.
+/// The zitadel may return an error if there are already existing actions or
+/// triggers
+#[instrument(skip_all, level = "error", fields(org_id = org_id))]
+pub async fn create_only<Z: ZitadelHandleCreateOnly>(
+    org_id: Option<String>,
+    zitadel: &Z,
+    actions: Actions<LoadedScript>,
+    flows: Flows,
+) -> Result<(), Z::Err> {
+    let actions_to_create = actions.into_iter().filter_map(
+        |(name, action)| as_variant!(action, ActionEnum::Existing(action) => (name, action)),
+    );
+
+    // 1. Create new actions
+    let mut existing_actions = Map::new();
+    for (name, action) in actions_to_create {
+        let action_id =
+            zitadel.create_action(ActionCreate::new(name.clone(), action), org_id.clone()).await?;
+        info!(%name, %action_id, "Created action");
+        existing_actions.insert(name, action_id);
+    }
+
+    // 2. Set actions triggers aka "Set trigger actions" in the zitadel doc
+    for (flow_type, trigger_types) in flows.into_iter() {
+        for (trigger_type, action_names) in trigger_types.into_iter() {
+            let action_ids = action_names
+                .into_iter()
+                .filter_map(|name| Some(existing_actions.get(&name)?.clone()))
+                .collect::<Vec<_>>()
+                .mutate(|ids| ids.sort()); // TODO: figure out if actions order in a trigger matters
+
+            info!(%flow_type, %trigger_type, ?action_ids, "Setting actions trigger");
+            zitadel
+                .set_trigger_actions(&flow_type, &trigger_type, action_ids, org_id.clone())
+                .await?;
+        }
+    }
+
+    info!("Sync successful");
+    Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReadYamlFileError {
+    #[error("IO error: {0}")]
+    Io(#[from] IoError),
+    #[error("Parsing yaml error: {0}")]
+    Parsing(#[from] serde_yaml::Error),
+}
+
+#[instrument(level = "error")]
+pub fn load(
+    dir: &Path,
+    actions: Option<&Path>,
+    flows: Option<&Path>,
+) -> Result<(Actions<LoadedScript>, Flows), Traced<ReadYamlFileError>> {
+    let flows_fname = dir.join(flows.unwrap_or(Path::new(DEFAULT_FLOWS_FILE)));
+    let actions_fname = dir.join(actions.unwrap_or(Path::new(DEFAULT_ACTIONS_FILE)));
+    let flows = from_yaml_file(&flows_fname)?;
+
+    let actions = if std::fs::exists(&actions_fname)
+        .map_err(ReadYamlFileError::from)
+        .map_err(Traced::new)?
+    {
+        from_yaml_file(&actions_fname)?
+    } else {
+        info!("File {actions_fname:?} doesn't exist, reading only actions referenced in {flows_fname:?}");
+        Actions::default()
+    };
+    let loaded_actions = load_actions(dir, actions, &flows).map_err(Traced::map_from)?;
+
+    Ok((loaded_actions, flows))
+}
+
 /// Takes a map of actions with possibly missing `script` fields. If that fields
 /// is missing it reads `{action_name}.js` file and returns the same map but
 /// with all `script` fields filled out. The same way actions mentioned in Flows
 /// are loaded, so Actions can actually be an empty map with only Flows not
 /// empty
 pub fn load_actions(
-    dir: &str,
+    dir: &Path,
     actions: Actions<OptionallyLoadedScript>,
     flows: &Flows,
 ) -> Result<Actions<LoadedScript>, Traced<IoError>> {
@@ -179,7 +252,7 @@ pub fn load_actions(
     let load_script = |name: &str| {
         tracing::error_span!("load_script", %name).in_scope(|| {
             let mut script = String::new();
-            File::open(format!("{dir}/{name}.js"))
+            File::open(dir.join([name, ".js"].concat()))
                 .map_err(Traced::new)?
                 .read_to_string(&mut script)
                 .map_err(Traced::new)?;
@@ -223,6 +296,16 @@ pub fn load_actions(
         }
     }
     Ok(actions)
+}
+
+#[doc(hidden)]
+#[instrument(level = "error")]
+pub fn from_yaml_file<T: DeserializeOwned, P: fmt::Debug + AsRef<Path>>(
+    path: P,
+) -> Result<T, Traced<ReadYamlFileError>> {
+    serde_yaml::from_reader(File::open(path).map_err(ReadYamlFileError::from).map_err(Traced::new)?)
+        .map_err(ReadYamlFileError::from)
+        .map_err(Traced::new)
 }
 
 // TODO: factor out into `famedly_rust_utils`:

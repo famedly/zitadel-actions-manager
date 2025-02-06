@@ -2,8 +2,10 @@ use famedly_rust_utils::{reqwest::*, BaseUrl, GenericCombinators};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use super::HEADER_ZITADEL_ORGANIZATION_ID;
 use crate::zitadel::*;
+
+/// Header for Zitadel organization ID
+const HEADER_ZITADEL_ORGANIZATION_ID: &str = "x-zitadel-orgid";
 
 /// Simple client that requires access token. This client does not do oauth and
 /// token renewal. Used by the cli tool.
@@ -84,9 +86,65 @@ struct GetTriggersResFlow {
     trigger_actions: Vec<GetTriggersResFlowAction>,
 }
 
-impl ZitadelHandle for SimpleZitadelClient {
+impl ZitadelInterface for SimpleZitadelClient {
     type Err = Traced<SimpleZitadelClientError>;
+}
 
+impl ZitadelHandleCreateOnly for SimpleZitadelClient {
+    #[instrument(skip(self), level = "error")]
+    async fn create_action(
+        &self,
+        action: ActionCreate,
+        org_id: Option<String>,
+    ) -> Result<String, Self::Err> {
+        #[derive(Deserialize)]
+        struct Response {
+            id: String,
+        }
+        Ok(self
+            .client
+            .post(self.url.join("management/v1/actions").map_err(E::from)?)
+            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
+            .json(&action)
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?
+            .json::<Response>()
+            .await
+            .map_err(E::from)?
+            .id)
+    }
+
+    #[instrument(skip(self), level = "error")]
+    async fn set_trigger_actions(
+        &self,
+        flow_type: &str,
+        trigger_type: &str,
+        action_ids: Vec<String>,
+        org_id: Option<String>,
+    ) -> Result<(), Self::Err> {
+        self.client
+            .post(
+                self.url
+                    .join(&format!("management/v1/flows/{flow_type}/trigger/{trigger_type}"))
+                    .map_err(E::from)?,
+            )
+            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
+            .json(&serde_json::json!({"actionIds": action_ids}))
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?;
+        Ok(())
+    }
+}
+
+impl ZitadelHandle for SimpleZitadelClient {
     #[instrument(skip(self), level = "error")]
     async fn search_actions_by_name(
         &self,
@@ -123,33 +181,6 @@ impl ZitadelHandle for SimpleZitadelClient {
             .map_err(E::from)?
             .result
             .and_then(|mut result| result.pop()))
-    }
-
-    #[instrument(skip(self), level = "error")]
-    async fn create_action(
-        &self,
-        action: ActionCreate,
-        org_id: Option<String>,
-    ) -> Result<String, Self::Err> {
-        #[derive(Deserialize)]
-        struct Response {
-            id: String,
-        }
-        Ok(self
-            .client
-            .post(self.url.join("management/v1/actions").map_err(E::from)?)
-            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
-            .json(&action)
-            .send()
-            .await
-            .map_err(E::from)?
-            .error_for_status_with_body()
-            .await
-            .map_err(E::from)?
-            .json::<Response>()
-            .await
-            .map_err(E::from)?
-            .id)
     }
 
     #[instrument(skip(self), level = "error")]
@@ -226,31 +257,6 @@ impl ZitadelHandle for SimpleZitadelClient {
             .map_err(E::from)?
             .flow
             .trigger_actions)
-    }
-
-    #[instrument(skip(self), level = "error")]
-    async fn set_trigger_actions(
-        &self,
-        flow_type: &str,
-        trigger_type: &str,
-        action_ids: Vec<String>,
-        org_id: Option<String>,
-    ) -> Result<(), Self::Err> {
-        self.client
-            .post(
-                self.url
-                    .join(&format!("management/v1/flows/{flow_type}/trigger/{trigger_type}"))
-                    .map_err(E::from)?,
-            )
-            .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
-            .json(&serde_json::json!({"actionIds": action_ids}))
-            .send()
-            .await
-            .map_err(E::from)?
-            .error_for_status_with_body()
-            .await
-            .map_err(E::from)?;
-        Ok(())
     }
 }
 
