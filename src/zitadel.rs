@@ -193,12 +193,14 @@ impl ZitadelHandle for std::sync::Arc<zitadel_rust_client::v2::Zitadel> {
         Ok(self
             .as_ref()
             .list_actions(
-                ListActionsRequest::new(vec![V1ActionQuery::new()
-                    .with_action_name_query(V1ActionNameQuery::new().with_name(name.into()))]),
                 org_id,
+                None,
+                Some(vec![V1ActionQuery::new()
+                    .with_action_name_query(V1ActionNameQuery::new().with_name(name.into()))]),
             )?
             .next()
             .await
+            .transpose()?
             .map(TryInto::try_into)
             .transpose()
             .map_err(|f| anyhow!("Response missing {f} field"))?)
