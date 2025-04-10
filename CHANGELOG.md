@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.2.0] - 2025-04-10
+
+### Features
+
+- Add zitadel-rust-client impl for ZitadelHandle
+- Add support for Organization ID in requests
+- [**breaking**] Factor out `create_only` functionality
+
+### Miscellaneous Tasks
+
+- [**breaking**] Bump `zitadel-rust-client` version to 0.3.0
+
+### Refactor
+
+- [**breaking**] `ZitadelInterface` for ZRC client instead of `Arc<ZRC client>`
+
+
 ## [0.1.0] - 2025-01-17
 
 ### Bug Fixes
