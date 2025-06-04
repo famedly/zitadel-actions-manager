@@ -260,6 +260,133 @@ impl ZitadelHandle for SimpleZitadelClient {
     }
 }
 
+impl ZitadelHandleV2 for SimpleZitadelClient {
+    #[instrument(skip(self), level = "error")]
+    async fn create_target(&self, req: CreateTarget) -> Result<TargetCreated, Self::Err> {
+        Ok(self
+            .client
+            .post(self.url.join("v2beta/actions/targets").map_err(E::from)?)
+            .json(&req)
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?
+            .json::<TargetCreated>()
+            .await
+            .map_err(E::from)?)
+    }
+
+    #[instrument(skip(self), level = "error")]
+    async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err> {
+        #[derive(Deserialize)]
+        struct Response {
+            result: Option<Vec<FoundTarget>>,
+        }
+        Ok(self
+            .client
+            .post(self.url.join("v2beta/actions/targets/_search").map_err(E::from)?)
+            .json(&serde_json::json!({
+                "pagination": { "limit": 1 },
+                "filters": [{
+                    "targetNameFilter": {
+                        "targetName": name,
+                        "method": "TEXT_FILTER_METHOD_EQUALS",
+                    }
+                }]
+            }))
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?
+            .json::<Response>()
+            .await
+            .map_err(E::from)?
+            .result
+            .and_then(|mut result| result.pop()))
+    }
+
+    #[instrument(skip(self), level = "error")]
+    async fn update_target(&self, id: &str, req: UpdateTarget) -> Result<TargetUpdated, Self::Err> {
+        Ok(self
+            .client
+            .post(
+                self.url
+                    .join("v2beta/actions/targets/")
+                    .and_then(|u| u.join(id))
+                    .map_err(E::from)?,
+            )
+            .json(&req)
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?
+            .json::<TargetUpdated>()
+            .await
+            .map_err(E::from)?)
+    }
+
+    #[instrument(skip(self), level = "error")]
+    async fn delete_target(&self, id: &str) -> Result<(), Self::Err> {
+        self.client
+            .delete(
+                self.url
+                    .join("v2beta/actions/targets/")
+                    .and_then(|u| u.join(id))
+                    .map_err(E::from)?,
+            )
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?;
+        Ok(())
+    }
+
+    #[instrument(skip(self), level = "error")]
+    async fn set_execution(&self, req: Execution) -> Result<(), Self::Err> {
+        self.client
+            .put(self.url.join("v2beta/actions/executions").map_err(E::from)?)
+            .json(&req)
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?;
+        Ok(())
+    }
+
+    #[instrument(skip(self), level = "error")]
+    async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err> {
+        #[derive(Deserialize)]
+        struct Response {
+            result: Option<Vec<Execution>>,
+        }
+        Ok(self
+            .client
+            .post(self.url.join("v2beta/actions/executions/_search").map_err(E::from)?)
+            .query(&[("pagination.limit", "1000")])
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?
+            .json::<Response>()
+            .await
+            .map_err(E::from)?
+            .result
+            .unwrap_or_default())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceAccount {

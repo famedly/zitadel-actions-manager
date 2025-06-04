@@ -13,6 +13,7 @@ thiserror = "2.0.11"
 tracing = "0.1.41"
 tracing-error = "0.2.1"
 trait-variant = "0.1.2"
+url = "2.5.4"
 
 # For the CLI tool:
 clap = { version = "4.5.24", features = ["derive", "string", "env"], optional = true }
@@ -22,7 +23,6 @@ serde_json = { version = "1.0.135", optional = true }
 time = { version = "0.3.37", optional = true }
 tokio = { version = "1.44.2", features = ["macros", "rt", "rt-multi-thread"], optional = true }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"], optional = true }
-url = { version = "2.5.4", optional = true }
 
 # For zitadel-rust-client:
 anyhow = { version = "1.0.95", optional = true }
@@ -42,7 +42,6 @@ simple-client = [
     "reqwest",
     "serde_json",
     "time",
-    "url",
 ]
 zitadel-rust-client = [
     "anyhow",
@@ -54,6 +53,9 @@ zitadel-rust-client = [
 name = "zitadel-actions-sync"
 path = "src/main.rs"
 required-features = ["cli"]
+
+[dev-dependencies]
+serde_json = "1.0.135"
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = ["git", "gitcl", "build"] } # vergen passes metadata like the version and git commit hash to cargo as a compile-time environment variables

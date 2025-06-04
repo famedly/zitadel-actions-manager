@@ -1,0 +1,7 @@
+test_targetius:
+  restAsync: {}
+  endpoint: http://example.com
+  timeout: 5s
+
+# delete test_targetington target if it exists
+test_targetington: null

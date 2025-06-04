@@ -1,0 +1,5 @@
+- condition: {event: {event: user.human.added }}
+  targets: [test_targetius]
+
+- condition: {request: {method: /zitadel.user.v2.UserService/AddHumanUser}}
+  targets: [test_targetius]

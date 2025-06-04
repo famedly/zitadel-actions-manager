@@ -11,5 +11,5 @@ store-failure-output = true
 command =  "./.config/starte2e.sh"
 
 [[profile.default.scripts]]
-filter = "test(test_binary)"
+filter = "test(e2e)"
 setup = "start-e2e-env"

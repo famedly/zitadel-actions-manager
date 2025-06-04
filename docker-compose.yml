@@ -2,7 +2,7 @@ services:
   zitadel:
     container_name: zitadel
     restart: 'unless-stopped'
-    image: 'ghcr.io/zitadel/zitadel:v2.67.1'
+    image: 'ghcr.io/zitadel/zitadel:v3.2.3'
     command: 'start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled'
     environment:
       - 'ZITADEL_FIRSTINSTANCE_MACHINEKEYPATH=/machinekey/service-account.json'
@@ -25,20 +25,18 @@ services:
       - 'ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=postgres'
       - 'ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD=password'
       - 'ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable'
-      # - 'ZITADEL_EXTERNALSECURE=false'
+      - 'ZITADEL_EXTERNALSECURE=false'
     depends_on:
       postgres: { condition: service_healthy }
     ports:
       - '9310:9310'
     volumes:
-      - /tmp/zitadel-docker-test/:/machinekey/:rw
-
-  zitadel_readiness_check:
-    image: alpine/curl
-    restart: on-failure
-    command: 'curl -fsS zitadel:9310/debug/ready'
-    depends_on:
-      zitadel: { condition: 'service_started' }
+      - ./docker/zitadel/:/machinekey/:rw
+    healthcheck:
+      test: ["CMD", "/app/zitadel", "ready"]
+      interval: '3s'
+      retries: 20
+      start_period: '10s'
 
   postgres:
     container_name: postgres
@@ -56,12 +54,6 @@ services:
       interval: 5s
       retries: 10
       start_period: 5s
-
-  ultimate_readiness_check:
-    image: alpine/curl
-    command: 'curl -V'
-    depends_on:
-      zitadel_readiness_check: { condition: 'service_completed_successfully' }
 
 volumes:
   postgresql-data:

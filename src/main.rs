@@ -7,7 +7,9 @@ use tracing::info;
 use zitadel_actions_manager::{
     from_yaml_file, load,
     simple_zitadel_client::{auth_with_service_account, ServiceAccount, SimpleZitadelClient},
-    sync, Traced, DEFAULT_ACTIONS_FILE, DEFAULT_FLOWS_FILE,
+    sync,
+    v2::{self, DEFAULT_EXECUTIONS_FILE, DEFAULT_TARGETS_FILE},
+    Actions, Flows, LoadedScript, Traced, DEFAULT_ACTIONS_FILE, DEFAULT_FLOWS_FILE,
 };
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), ", git rev ", env!("VERGEN_GIT_SHA"));
@@ -18,13 +20,29 @@ type BoxedErr = Box<dyn std::error::Error>;
 #[command(about, version = VERSION)]
 /// A tool to sync/migrate Zitadel actions defined in a declarative way.
 struct Args {
-    /// File to read actions from
+    /// Run v1 actions sync
+    #[arg(short = '1', long)]
+    v1: bool,
+
+    /// Run v2 actions sync
+    #[arg(short = '2', long)]
+    v2: bool,
+
+    /// File to read actions from (v1)
     #[arg(short, long, default_value = DEFAULT_ACTIONS_FILE, value_name = "PATH")]
     actions: String,
 
-    /// File to read flows from
+    /// File to read flows from (v1)
     #[arg(short, long, default_value = DEFAULT_FLOWS_FILE, value_name = "PATH")]
     flows: String,
+
+    /// File to read targets from (v2)
+    #[arg(short, long, default_value = DEFAULT_TARGETS_FILE, value_name = "PATH")]
+    targets: String,
+
+    /// File to read executions from (v2)
+    #[arg(short, long, default_value = DEFAULT_EXECUTIONS_FILE, value_name = "PATH")]
+    executions: String,
 
     /// Directory with actions
     #[arg(short, long, default_value = ".")]
@@ -35,7 +53,7 @@ struct Args {
     url: BaseUrl,
 
     /// Zitadel access token
-    #[arg(short, long, env = "ZITADEL_JWT", hide_env_values = true)]
+    #[arg(short = 'T', long, env = "ZITADEL_JWT", hide_env_values = true)]
     token: Option<String>,
 
     /// Zitadel service account file
@@ -72,51 +90,57 @@ async fn main() -> ExitCode {
     }
 }
 
-#[tokio::test]
-async fn test_binary() -> Result<(), Traced<BoxedErr>> {
-    init_tracing(&tracing_subscriber::filter::LevelFilter::TRACE, None);
-    run(Args::parse_from([
-        "binname",
-        "-d=example-actions",
-        "-s=/tmp/zitadel-docker-test/service-account.json",
-        "--aud=http://localhost:9310",
-        "-u=http://localhost:9310",
-    ]))
-    .await
-    .inspect_err(|e| tracing::error!("{e}"))
-}
-
 async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
-    info!("Loading all actions...");
-    let (loaded_actions, flows) =
-        load(args.dir.as_ref(), Some(args.actions.as_ref()), Some(args.flows.as_ref()))
-            .map_err(BoxedErr::from)?;
+    (args.v1 || args.v2)
+        .then_some(())
+        .ok_or_else(|| boxed_text_err("Either --v1 or --v2 should be specified"))?;
 
-    let access_token = if let Some(svc_acc_file) = args.service_account {
-        let aud = args.aud.ok_or_else(|| {
-            boxed_text_err("--aud must be specified along with --service-account")
-        })?;
-        let service_account: ServiceAccount =
-            from_yaml_file(&svc_acc_file).map_err(BoxedErr::from)?;
-        auth_with_service_account(&args.url, &aud, &service_account)
-            .await
-            .map_err(Traced::map_from)?
-    } else {
-        args.token.ok_or_else(|| {
-            boxed_text_err("Either --token or --service-account must be specified")
-        })?
-    };
+    let actions_and_flows = args
+        .v1
+        .then(|| {
+            info!("Loading all v1 actions and flows...");
+            load(args.dir.as_ref(), Some(args.actions.as_ref()), Some(args.flows.as_ref()))
+        })
+        .transpose()
+        .map_err(BoxedErr::from)?;
+
+    let targets_and_executions = args
+        .v2
+        .then(|| {
+            info!("Loading all v2 targets and executions...");
+            v2::load(args.dir.as_ref(), Some(args.targets.as_ref()), Some(args.executions.as_ref()))
+        })
+        .transpose()
+        .map_err(BoxedErr::from)?;
+
+    let access_token = auth(&args).await?;
 
     let zitadel = SimpleZitadelClient::new(args.url.clone(), &access_token, args.org_id.clone())
         .map_err(|e| Traced::new(BoxedErr::from(e)))?;
 
-    info!("Performing sync...");
+    if let Some((loaded_actions, flows)) = actions_and_flows {
+        info!("Performing v1 actions sync...");
+        sync_v1(&args, &zitadel, loaded_actions, flows).await?;
+    }
 
+    if let Some((targets, executions)) = targets_and_executions {
+        info!("Performing v2 actions sync...");
+        v2::sync(&zitadel, targets, executions).await.map_err(Traced::map_from)?;
+    }
+
+    Ok(())
+}
+
+async fn sync_v1(
+    args: &Args,
+    zitadel: &SimpleZitadelClient,
+    actions: Actions<LoadedScript>,
+    flows: Flows,
+) -> Result<(), Traced<BoxedErr>> {
     if args.all_orgs {
         const PAGE_SIZE: u64 = 100;
         let mut page = 0;
-        // Using `while let` here results in `future not Send`
-        // FIXME: investigate, possibly compiler bug
+        // TODO: refactor to `while let` if error type becomes `Send`
         loop {
             let Some(org_ids) = zitadel
                 .get_all_orgs(page * PAGE_SIZE, PAGE_SIZE)
@@ -125,20 +149,33 @@ async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
             else {
                 break;
             };
+
             for org_id in org_ids {
-                let zitadel =
-                    SimpleZitadelClient::new(args.url.clone(), &access_token, Some(org_id.clone()))
-                        .map_err(|e| Traced::new(BoxedErr::from(e)))?;
-                sync(Some(org_id), &zitadel, loaded_actions.clone(), flows.clone())
+                sync(Some(org_id), zitadel, actions.clone(), flows.clone())
                     .await
                     .map_err(Traced::map_from)?;
             }
             page += 1;
         }
     } else {
-        sync(args.org_id, &zitadel, loaded_actions, flows).await.map_err(Traced::map_from)?;
+        sync(args.org_id.clone(), zitadel, actions, flows).await.map_err(Traced::map_from)?;
     }
     Ok(())
+}
+
+async fn auth(args: &Args) -> Result<String, Traced<BoxedErr>> {
+    if let Some(svc_acc_file) = &args.service_account {
+        let aud = args.aud.as_ref().ok_or_else(|| {
+            boxed_text_err("--aud must be specified along with --service-account")
+        })?;
+        let service_account: ServiceAccount =
+            from_yaml_file(svc_acc_file).map_err(BoxedErr::from)?;
+        auth_with_service_account(&args.url, aud, &service_account).await.map_err(Traced::map_from)
+    } else {
+        args.token
+            .clone()
+            .ok_or_else(|| boxed_text_err("Either --token or --service-account must be specified"))
+    }
 }
 
 fn boxed_text_err(e: &str) -> Traced<BoxedErr> {
@@ -175,4 +212,38 @@ pub fn init_tracing(
         .with(tracing_error::ErrorLayer::default())
         .try_init()
         .expect("Failed to initialize tracing subscriber");
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[tokio::test]
+    async fn test_e2e_binary_v1() -> Result<(), Traced<BoxedErr>> {
+        init_tracing(&tracing_subscriber::filter::LevelFilter::TRACE, None);
+        run(Args::parse_from([
+            "binname",
+            "--v1",
+            "-d=example-actions",
+            "-s=docker/zitadel/service-account.json",
+            "--aud=http://localhost:9310",
+            "-u=http://localhost:9310",
+        ]))
+        .await
+        .inspect_err(|e| tracing::error!("{e}"))
+    }
+
+    #[tokio::test]
+    async fn test_e2e_binary_v2() -> Result<(), Traced<BoxedErr>> {
+        init_tracing(&tracing_subscriber::filter::LevelFilter::TRACE, None);
+        run(Args::parse_from([
+            "binname",
+            "--v2",
+            "-d=example-actions",
+            "-s=docker/zitadel/service-account.json",
+            "--aud=http://localhost:9310",
+            "-u=http://localhost:9310",
+        ]))
+        .await
+        .inspect_err(|e| tracing::error!("{e}"))
+    }
 }

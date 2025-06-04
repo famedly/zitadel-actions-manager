@@ -125,6 +125,140 @@ pub struct GetTriggersResFlowAction {
     pub actions: Vec<ActionSearch>,
 }
 
+#[trait_variant::make(ZitadelHandleV2: Send + Sync)]
+pub trait ZitadelHandleV2Prototype: ZitadelInterface {
+    async fn create_target(&self, req: CreateTarget) -> Result<TargetCreated, Self::Err>;
+    async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err>;
+    async fn update_target(&self, id: &str, req: UpdateTarget) -> Result<TargetUpdated, Self::Err>;
+    async fn delete_target(&self, id: &str) -> Result<(), Self::Err>;
+
+    async fn set_execution(&self, req: Execution) -> Result<(), Self::Err>;
+    async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err>;
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetCreated {
+    pub id: String,
+    pub signing_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTarget {
+    pub name: String,
+    #[serde(flatten)]
+    pub target_type: TargetType,
+    pub timeout: String,
+    pub endpoint: url::Url,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundTarget {
+    pub id: String,
+    pub name: String,
+    #[serde(flatten)]
+    pub target_type: TargetType,
+    pub timeout: String,
+    pub endpoint: url::Url,
+    pub signing_key: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTarget {
+    #[serde(flatten)]
+    pub target_type: Option<TargetType>,
+    pub timeout: Option<String>,
+    pub endpoint: Option<url::Url>,
+    pub expiration_signing_key: Option<String>,
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum TargetType {
+    restWebhook(Asdf),
+    restCall(Asdf),
+    restAsync {},
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetUpdated {
+    pub signing_key: String,
+}
+
+/// Suggest a better name
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Asdf {
+    pub interrupt_on_error: Option<bool>,
+}
+
+// `serde_yaml` doesn't support nested enums, thus this `singleton_map`
+// workaround, see https://github.com/dtolnay/serde-yaml/issues/363#issuecomment-1478409196
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Execution {
+    #[serde(with = "serde_yaml::with::singleton_map")]
+    pub condition: ExecutionCondition,
+    pub targets: Vec<String>,
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum ExecutionCondition {
+    request(#[serde(with = "serde_yaml::with::singleton_map")] RequestResponseCondition),
+    response(#[serde(with = "serde_yaml::with::singleton_map")] RequestResponseCondition),
+    function { name: String },
+    event(#[serde(with = "serde_yaml::with::singleton_map")] EventCondition),
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum RequestResponseCondition {
+    method(String),
+    service(String),
+    all(TrueConst),
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum EventCondition {
+    event(String),
+    group(String),
+    all(TrueConst),
+}
+
+#[test]
+fn test_nested_enum_serde_yaml() {
+    let execution = Execution {
+        targets: vec![],
+        condition: ExecutionCondition::event(EventCondition::event("hello".into())),
+    };
+    let parsed_execution =
+        serde_yaml::from_str(&serde_json::to_string(&execution).unwrap()).unwrap();
+    assert_eq!(execution, parsed_execution);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrueConst;
+
+impl Serialize for TrueConst {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        true.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TrueConst {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Unexpected;
+        (bool::deserialize(deserializer)?)
+            .then_some(TrueConst)
+            .ok_or_else(|| serde::de::Error::invalid_value(Unexpected::Bool(false), &"true"))
+    }
+}
+
 #[cfg(feature = "zitadel-rust-client")]
 use {
     crate::{impl_traced_from, Traced},

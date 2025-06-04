@@ -13,6 +13,7 @@ pub const DEFAULT_FLOWS_FILE: &str = "flows.yaml";
 
 #[cfg(feature = "simple-client")]
 pub mod simple_zitadel_client;
+pub mod v2;
 pub mod zitadel;
 
 /// Zitadel action definition
@@ -25,29 +26,6 @@ pub struct Action<Script> {
     pub script: Script,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum ActionEnum<Script> {
-    /// An action that has to be created or updated
-    Existing(Action<Script>),
-    /// An action that has to be deleted if it exists
-    Deleted(Deleted),
-}
-
-/// This type is only needed for [ActionEnum] serde. Use [deleted] function to
-/// construct this in code
-#[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum Deleted {
-    deleted,
-}
-
-/// Helper function to construct deleted markers in code
-#[must_use]
-pub const fn deleted<Script>() -> ActionEnum<Script> {
-    ActionEnum::Deleted(Deleted::deleted)
-}
-
 /// A generic parameter to [Action] representing fully loaded script
 pub type LoadedScript = String;
 /// A generic parameter to [Action] representing optional script that may need
@@ -55,7 +33,7 @@ pub type LoadedScript = String;
 pub type OptionallyLoadedScript = Option<String>;
 
 /// Full set for action definitions (actions.yaml)
-pub type Actions<Script> = Map<String, ActionEnum<Script>>;
+pub type Actions<Script> = Map<String, Option<Action<Script>>>;
 /// Full set for flows definitions (flows.yaml)
 pub type Flows = Map<String, Map<String, Vec<String>>>;
 
@@ -82,11 +60,11 @@ pub async fn sync<Z: ZitadelHandle>(
 
     let names_to_delete = actions
         .iter()
-        .filter_map(|(name, action)| as_variant!(action, ActionEnum::Deleted(_) => name.into()))
+        .filter_map(|(name, action)| as_variant!(action, None => name.clone()))
         .collect::<Vec<String>>();
-    let actions_to_update = actions.into_iter().filter_map(
-        |(name, action)| as_variant!(action, ActionEnum::Existing(action) => (name, action)),
-    );
+    let actions_to_update = actions
+        .into_iter()
+        .filter_map(|(name, action)| as_variant!(action, Some(action) => (name, action)));
 
     // 2. Create and update actions
     let mut existing_actions = Map::new();
@@ -173,9 +151,9 @@ pub async fn create_only<Z: ZitadelHandleCreateOnly>(
     actions: Actions<LoadedScript>,
     flows: Flows,
 ) -> Result<(), Z::Err> {
-    let actions_to_create = actions.into_iter().filter_map(
-        |(name, action)| as_variant!(action, ActionEnum::Existing(action) => (name, action)),
-    );
+    let actions_to_create = actions
+        .into_iter()
+        .filter_map(|(name, action)| as_variant!(action, Some(action) => (name, action)));
 
     // 1. Create new actions
     let mut existing_actions = Map::new();
@@ -264,30 +242,27 @@ pub fn load_actions(
         .map(|(name, action)| {
             Ok::<_, Traced<IoError>>((
                 name.clone(),
-                match action {
-                    ActionEnum::Existing(action) => {
+                action
+                    .map(|action| {
                         let script = action.script.map_or_else(|| load_script(&name), Ok)?;
-                        ActionEnum::Existing(Action {
+                        Ok(Action {
                             timeout: action.timeout,
                             allowed_to_fail: action.allowed_to_fail,
                             script,
                         })
-                    }
-                    ActionEnum::Deleted(d) => ActionEnum::Deleted(d),
-                },
+                    })
+                    .transpose()?,
             ))
         })
         .collect::<Result<Map<_, _>, _>>()?;
 
     for action_name in flows.values().flat_map(|x| x.values().flat_map(|v| v.iter())) {
-        if let Some(action) = actions.get(action_name) {
-            if matches!(action, ActionEnum::Deleted(_)) {
-                return Err(Traced::new(IoError::other(format!(
-                    "Action `{action_name}` is marked as deleted but is used in flows"
-                ))));
-            }
+        if let Some(None) = actions.get(action_name) {
+            return Err(Traced::new(IoError::other(format!(
+                "Action `{action_name}` is marked as deleted but is used in flows"
+            ))));
         } else {
-            let loaded_action = ActionEnum::Existing(Action {
+            let loaded_action = Some(Action {
                 timeout: None,
                 allowed_to_fail: None,
                 script: load_script(action_name)?,

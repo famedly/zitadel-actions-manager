@@ -1,3 +1,4 @@
+
 # Zitadel Actions Manager
 
 [![rust workflow status][badge-rust-workflow-img]][badge-rust-workflow-url]
@@ -8,9 +9,24 @@
 [badge-docker-workflow-img]: https://github.com/famedly/rust-project-template/actions/workflows/docker.yml/badge.svg
 [badge-docker-workflow-url]: https://github.com/famedly/rust-project-template/commits/main
 
-A library and a CLI tool to sync/migrate [zitadel actions](https://zitadel.com/docs/apis/actions/introduction) defined in a declarative way.
+A library and a CLI tool to sync/migrate [v1](https://zitadel.com/docs/apis/actions/introduction) and
+[v2](https://zitadel.com/docs/guides/integrate/actions/usage) [Zitadel](https://zitadel.com/) actions
+defined in a declarative way.
 
-## Data model
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+
+- [V1 Data model](#v1-data-model)
+- [V2 Data model](#v2-data-model)
+- [CLI tool usage](#cli-tool-usage)
+- [Library usage](#library-usage)
+- [Testing](#testing)
+- [Pre-commit usage](#pre-commit-usage)
+- [Famedly](#famedly)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+## V1 Data model
 
 The actions are defined in `actions.yaml` file:
 ```yaml
@@ -26,7 +42,7 @@ action1:
     }
 
 # action that needs to be deleted if it exists in zitadel
-action2: deleted
+action2: null
 ```
 
 The actual triggers are defined in `flows.yaml` file:
@@ -36,20 +52,32 @@ FLOW_TYPE_EXTERNAL_AUTHENTICATION:
 ```
 
 Action names that are referenced in `flows.yaml` but not referenced in `actions.yaml` are presumed
-to be defined in `actionName.js` files.
+to be defined in `<actionName>.js` files.
 
-## Library usage
+## V2 Data model
 
-Depending on the scenario, you need to define the actions and triggers. You can do that statically
-in code by just constructing `Actions<Loaded>` and `Flows` (with the help of `include!` macro) or have
-actions defined in the files and loaded on start. For this scenario you'd need to read `actions.yaml`
-and `flows.yaml`, deserialize them and call `load_actions` which will also load all action files
-that are referenced but lack `script` field in `actions.yaml` file. Then call `sync` function.
-See `run` function in [src/main.rs](src/main.rs) for reference.
+The targets are defined in `targets.yaml` file:
+```yaml
+target1:
+  restAsync: {}
+  endpoint: http://example.com/call_me
+  timeout: 5s
 
-You'd also need to implement `ZitadelHandle` for your zitadel client, or your can use
-`simple_zitadel_client` included in this library (doesn't do oauth and token renewals).
+# delete target2 target if it exists
+target2: null
+```
 
+The executions are defined in `executions.yaml` file:
+```yaml
+- condition: {event: {event: user.human.added}}
+  targets: [target1] # targets by their names defined in targets.yaml
+
+- condition: {request: {method: /zitadel.user.v2.UserService/AddHumanUser}}
+  targets: [target1]
+```
+
+The structures of both targets and executions are meant to replicate Zitadel's
+[API](https://zitadel.com/docs/category/apis/resources/action_service_v2/action-service).
 
 ## CLI tool usage
 
@@ -68,13 +96,23 @@ Or run directly from source
 cargo run --features cli -- [OPTIONS]
 ```
 
-Options:
+<!-- `$ cargo run --features cli -- -h` -->
+
 ```
-  -a, --actions <PATH>          File to read actions from [default: actions.yaml]
-  -f, --flows <PATH>            File to read flows from [default: flows.yaml]
+A tool to sync/migrate Zitadel actions defined in a declarative way
+
+Usage: zitadel-actions-sync [OPTIONS]
+
+Options:
+  -1, --v1                      Run v1 actions sync
+  -2, --v2                      Run v2 actions sync
+  -a, --actions <PATH>          File to read actions from (v1) [default: actions.yaml]
+  -f, --flows <PATH>            File to read flows from (v1) [default: flows.yaml]
+  -t, --targets <PATH>          File to read targets from (v2) [default: targets.yaml]
+  -e, --executions <PATH>       File to read executions from (v2) [default: executions.yaml]
   -d, --dir <DIR>               Directory with actions [default: .]
   -u, --url <URL>               Zitadel Url [default: http://localhost:9310]
-  -t, --token <TOKEN>           Zitadel access token [env: ZITADEL_JWT]
+  -T, --token <TOKEN>           Zitadel access token [env: ZITADEL_JWT]
   -s, --service-account <PATH>  Zitadel service account file
       --aud <AUD>               Audience to add to zitadel JWT (used with `--service-account`)
   -o, --org-id <ORG_ID>         Organization for which perform the sync
@@ -92,25 +130,32 @@ touch /tmp/zitadel-docker-test/service-account.json
 docker compose up -d
 docker compose wait ultimate_readiness_check
 cargo run --features cli -- \
+    --v1 \
+    --v2 \
     -d example-actions \
     -s /tmp/zitadel-docker-test/service-account.json \
     -u http://localhost:9310 \
     --aud http://localhost:9310
 ```
 
-## Testing
-```sh
-mkdir -p /tmp/zitadel-docker-test/
-touch /tmp/zitadel-docker-test/service-account.json
-docker compose down -v
-docker compose up -d
-docker compose wait ultimate_readiness_check
-cargo test
-```
+## Library usage
 
-Or all in one:
+Depending on the scenario, you need to define the actions and triggers. You can do that statically
+in code by just constructing `Actions<Loaded>` and `Flows` (with the help of `include!` macro) or have
+actions defined in the files and loaded on start. For this scenario you can call `load`
+and then `sync` functions.
+
+See `run` function in [src/main.rs](src/main.rs) for reference.
+
+You'd also need to implement `ZitadelHandle` for your zitadel client, or your can use
+`simple_zitadel_client` included in this library (doesn't do oauth and token renewals).
+
+For v2 actions there are similarly named (`load` and `sync`) functions in `v2` module.
+
+## Testing
+
 ```sh
-cargo nextest
+cargo nextest run
 ```
 
 ## Pre-commit usage
@@ -121,7 +166,7 @@ cargo nextest
 
 ---
 
-# Famedly
+## Famedly
 
 **This project is part of the source code of Famedly.**
 

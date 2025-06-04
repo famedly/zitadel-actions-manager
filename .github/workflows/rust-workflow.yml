@@ -87,7 +87,7 @@ jobs:
       shell: bash
       if: failure()
       run: |
-        docker compose --project-directory ./tests/environment logs
+        docker compose --project-directory . logs
 
     - name: Codecov - Upload coverage
       uses: codecov/codecov-action@v4
