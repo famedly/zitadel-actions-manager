@@ -31,7 +31,7 @@ impl PartialEq<FoundTarget> for Target {
     fn eq(&self, other: &FoundTarget) -> bool {
         self.target_type == other.target_type
             && self.timeout == other.timeout
-            && self.endpoint == other.endpoint
+            && self.endpoint.as_str() == other.endpoint
     }
 }
 
@@ -40,7 +40,7 @@ impl From<Target> for UpdateTarget {
         Self {
             target_type: Some(target.target_type),
             timeout: Some(target.timeout),
-            endpoint: Some(target.endpoint),
+            endpoint: Some(target.endpoint.to_string()),
             expiration_signing_key: None,
         }
     }
@@ -53,7 +53,7 @@ impl Target {
             name,
             target_type: self.target_type,
             timeout: self.timeout,
-            endpoint: self.endpoint,
+            endpoint: self.endpoint.to_string(),
         }
     }
 }
@@ -158,4 +158,26 @@ pub fn load(
     let targets = from_yaml_file(&targets_fname)?;
     let executions = from_yaml_file(&executions_fname)?;
     Ok((targets, executions))
+}
+
+#[cfg(test)]
+mod test {
+    #[allow(unused_imports)]
+    use super::*;
+
+    #[cfg(feature = "zitadel-rust-client")]
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_e2e_v2_zrc_sync() {
+        use std::path::Path;
+        let (targets, executions) = load(Path::new("example-actions"), None, None).unwrap();
+        let zitadel = zitadel_rust_client::v2::Zitadel::new(
+            url_macro::url!("http://localhost:9310"),
+            "docker/zitadel/service-account.json".into(),
+            None,
+        )
+        .await
+        .unwrap();
+        sync(&zitadel, targets, executions).await.unwrap();
+    }
 }

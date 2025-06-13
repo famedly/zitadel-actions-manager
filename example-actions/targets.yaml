@@ -1,5 +1,7 @@
 test_targetius:
-  restAsync: {}
+  # restAsync: {}
+  restCall:
+    interruptOnError: true
   endpoint: http://example.com
   timeout: 5s
 

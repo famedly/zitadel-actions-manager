@@ -150,7 +150,7 @@ pub struct CreateTarget {
     #[serde(flatten)]
     pub target_type: TargetType,
     pub timeout: String,
-    pub endpoint: url::Url,
+    pub endpoint: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -161,7 +161,7 @@ pub struct FoundTarget {
     #[serde(flatten)]
     pub target_type: TargetType,
     pub timeout: String,
-    pub endpoint: url::Url,
+    pub endpoint: String,
     pub signing_key: String,
 }
 
@@ -171,15 +171,16 @@ pub struct UpdateTarget {
     #[serde(flatten)]
     pub target_type: Option<TargetType>,
     pub timeout: Option<String>,
-    pub endpoint: Option<url::Url>,
+    pub endpoint: Option<String>,
     pub expiration_signing_key: Option<String>,
 }
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TargetType {
-    restWebhook(Asdf),
-    restCall(Asdf),
+    restWebhook { interrupt_on_error: Option<bool> },
+    restCall { interrupt_on_error: Option<bool> },
     restAsync {},
 }
 
@@ -187,13 +188,6 @@ pub enum TargetType {
 #[serde(rename_all = "camelCase")]
 pub struct TargetUpdated {
     pub signing_key: String,
-}
-
-/// Suggest a better name
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Asdf {
-    pub interrupt_on_error: Option<bool>,
 }
 
 // `serde_yaml` doesn't support nested enums, thus this `singleton_map`
@@ -437,4 +431,213 @@ fn from_flow_response(a: V1GetFlowResponse) -> Result<Vec<GetTriggersResFlowActi
                 .map_err(|f| ["flow", "trigger_actions", &f].join("."))
         },
     )
+}
+
+#[cfg(feature = "zitadel-rust-client")]
+use {
+    futures::stream::TryStreamExt, zitadel_rust_client::v2::actions::*,
+    zitadel_rust_client::v2::pagination::PaginationParams,
+};
+
+#[cfg(feature = "zitadel-rust-client")]
+impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
+    #[tracing::instrument(skip_all, level = "error", fields(name = req_.name))]
+    async fn create_target(&self, req_: CreateTarget) -> Result<TargetCreated, Self::Err> {
+        let mut req = V2betaCreateTargetRequest::new()
+            .with_name(req_.name)
+            .with_timeout(req_.timeout)
+            .with_endpoint(req_.endpoint);
+        match req_.target_type {
+            TargetType::restWebhook { interrupt_on_error } => req.set_rest_webhook(
+                V2betaRestWebhook::new()
+                    .chain_opt(interrupt_on_error, V2betaRestWebhook::with_interrupt_on_error),
+            ),
+            TargetType::restCall { interrupt_on_error } => req.set_rest_call(
+                V2betaRestCall::new()
+                    .chain_opt(interrupt_on_error, V2betaRestCall::with_interrupt_on_error),
+            ),
+            TargetType::restAsync {} => req.set_rest_async(V2betaRestAsync::new()),
+        }
+
+        let res = self.create_target(&req).await?;
+        Ok(TargetCreated {
+            id: res.id().cloned().context("Created target is missing id")?,
+            signing_key: res
+                .signing_key()
+                .cloned()
+                .context("Created target is missing signing key")?,
+        })
+    }
+
+    #[tracing::instrument(skip_all, level = "error", fields(id))]
+    async fn update_target(
+        &self,
+        id: &str,
+        req_: UpdateTarget,
+    ) -> Result<TargetUpdated, Self::Err> {
+        type Req = ActionServiceUpdateTargetBody;
+        let mut req = Req::new()
+            .chain_opt(req_.timeout, Req::with_timeout)
+            .chain_opt(req_.endpoint, Req::with_endpoint)
+            .chain_opt(req_.expiration_signing_key, Req::with_expiration_signing_key);
+        match req_.target_type {
+            Some(TargetType::restWebhook { interrupt_on_error }) => req.set_rest_webhook(
+                V2betaRestWebhook::new()
+                    .chain_opt(interrupt_on_error, V2betaRestWebhook::with_interrupt_on_error),
+            ),
+            Some(TargetType::restCall { interrupt_on_error }) => req.set_rest_call(
+                V2betaRestCall::new()
+                    .chain_opt(interrupt_on_error, V2betaRestCall::with_interrupt_on_error),
+            ),
+            Some(TargetType::restAsync {}) => req.set_rest_async(V2betaRestAsync::new()),
+            None => {}
+        }
+        let res = self.update_target(id, &req).await?;
+        Ok(TargetUpdated {
+            signing_key: res
+                .signing_key()
+                .cloned()
+                .context("Updated target is missing signing key")?,
+        })
+    }
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn delete_target(&self, id: &str) -> Result<(), Self::Err> {
+        self.delete_target(id).await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), level = "error")]
+    async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err> {
+        let target = self
+            .list_targets(
+                Some(PaginationParams::default().with_page_size(1)),
+                None,
+                Some(vec![V2betaTargetSearchFilter::new().with_target_name_filter(
+                    V2betaTargetNameFilter::new()
+                        .with_target_name(name.to_owned())
+                        .with_method(V2betaTextFilterMethod::TEXT_FILTER_METHOD_EQUALS),
+                )]),
+            )?
+            .next()
+            .await
+            .transpose()?;
+        let Some(target) = target else {
+            return Ok(None);
+        };
+
+        let target_type = if let Some(x) = target.rest_webhook() {
+            TargetType::restWebhook { interrupt_on_error: x.interrupt_on_error().copied() }
+        } else if let Some(x) = target.rest_call() {
+            TargetType::restCall { interrupt_on_error: x.interrupt_on_error().copied() }
+        } else if target.rest_async().is_some() {
+            TargetType::restAsync {}
+        } else {
+            return Err(anyhow!("Found target is malformed").into());
+        };
+
+        Ok(Some(FoundTarget {
+            id: target.id().cloned().context("Found target is missing id")?,
+            name: target.name().cloned().context("Found target is missing name")?,
+            target_type,
+            timeout: target.timeout().cloned().context("Found target is missing timeout")?,
+            endpoint: target.endpoint().cloned().context("Found target is missing endpoint")?,
+            signing_key: target
+                .signing_key()
+                .cloned()
+                .context("Found target is missing signing key")?,
+        }))
+    }
+
+    // Writing these two last methods manually was soul crushing.
+    // Please use AI next time, spare yourself.
+    #[tracing::instrument(skip_all, level = "error")]
+    async fn set_execution(&self, req: Execution) -> Result<(), Self::Err> {
+        let condition = match req.condition {
+            ExecutionCondition::request(cnd) => V2betaCondition::new().with_request(match cnd {
+                RequestResponseCondition::method(x) => V2betaRequestExecution::new().with_method(x),
+                RequestResponseCondition::service(x) => {
+                    V2betaRequestExecution::new().with_service(x)
+                }
+                RequestResponseCondition::all(_) => V2betaRequestExecution::new().with_all(true),
+            }),
+            ExecutionCondition::response(cnd) => V2betaCondition::new().with_response(match cnd {
+                RequestResponseCondition::method(x) => {
+                    V2betaResponseExecution::new().with_method(x)
+                }
+                RequestResponseCondition::service(x) => {
+                    V2betaResponseExecution::new().with_service(x)
+                }
+                RequestResponseCondition::all(_) => V2betaResponseExecution::new().with_all(true),
+            }),
+            ExecutionCondition::function { name } => {
+                V2betaCondition::new().with_function(V2betaFunctionExecution::new().with_name(name))
+            }
+            ExecutionCondition::event(cnd) => V2betaCondition::new().with_event(match cnd {
+                EventCondition::event(x) => V2betaEventExecution::new().with_event(x),
+                EventCondition::group(x) => V2betaEventExecution::new().with_group(x),
+                EventCondition::all(_) => V2betaEventExecution::new().with_all(true),
+            }),
+        };
+        self.set_execution(
+            &V2betaSetExecutionRequest::new().with_condition(condition).with_targets(req.targets),
+        )
+        .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all, level = "error")]
+    async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err> {
+        Ok(self
+            .list_executions(&None, &None)
+            .and_then(async |execution| {
+                let condition = execution.condition().context("Execution is missing condition")?;
+                let condition = if let Some(request) = condition.request() {
+                    ExecutionCondition::request(if let Some(method) = request.method() {
+                        RequestResponseCondition::method(method.to_owned())
+                    } else if let Some(service) = request.service() {
+                        RequestResponseCondition::service(service.to_owned())
+                    } else if let Some(_all) = request.all() {
+                        RequestResponseCondition::all(TrueConst)
+                    } else {
+                        anyhow::bail!("Execution.condition.request is malformed");
+                    })
+                } else if let Some(response) = condition.response() {
+                    ExecutionCondition::response(if let Some(method) = response.method() {
+                        RequestResponseCondition::method(method.to_owned())
+                    } else if let Some(service) = response.service() {
+                        RequestResponseCondition::service(service.to_owned())
+                    } else if let Some(_all) = response.all() {
+                        RequestResponseCondition::all(TrueConst)
+                    } else {
+                        anyhow::bail!("Execution.condition.response is malformed");
+                    })
+                } else if let Some(function) = condition.function() {
+                    ExecutionCondition::function {
+                        name: function
+                            .name()
+                            .context("Execution.condition.function is missing name")?
+                            .to_owned(),
+                    }
+                } else if let Some(event) = condition.event() {
+                    ExecutionCondition::event(if let Some(event) = event.event() {
+                        EventCondition::event(event.to_owned())
+                    } else if let Some(group) = event.group() {
+                        EventCondition::group(group.to_owned())
+                    } else if event.all().is_some() {
+                        EventCondition::all(TrueConst)
+                    } else {
+                        anyhow::bail!("Execution.condition.event is malformed");
+                    })
+                } else {
+                    anyhow::bail!("Execution.condition is malformed");
+                };
+                Ok(Execution {
+                    condition,
+                    targets: execution.targets().cloned().unwrap_or_default(),
+                })
+            })
+            .try_collect()
+            .await?)
+    }
 }
