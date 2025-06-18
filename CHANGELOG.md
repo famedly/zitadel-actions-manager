@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.3.0] - 2025-06-18
+
+### Continuous Integration Pipeline
+
+- Remove main.yaml workflow
+
+### Features
+
+- [**breaking**] Add v2 actions support
+- [**breaking**] Impl v2 handle for ZRC
+
+
 ## [0.2.0] - 2025-04-10
 
 ### Features
