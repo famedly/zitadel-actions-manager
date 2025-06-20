@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+#
+# SPDX-License-Identifier: Apache-2.0
+
 name: Rust
 
 # Trigger the CI on any tags, pushes to any branch and PRs to any branch.
@@ -21,7 +25,18 @@ env:
 # Based on famedly/backend-build-workflows/.github/workflows/rust-workflow.yml@v1
 # but had to separate tests to give docker support.
 jobs:
+  compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: REUSE Compliance Check
+        uses: fsfe/reuse-action@v5
+      - name: Dependency license check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans licenses sources
   simple-checks:
+    needs: compliance
     container: docker-oss.nexus.famedly.de/rust-container:nightly
     runs-on: ubuntu-latest
     steps:

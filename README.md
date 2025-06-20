@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+
+SPDX-License-Identifier: Apache-2.0
+-->
 
 # Zitadel Actions Manager
 
@@ -176,8 +181,8 @@ parts of our source code at [github.com/famedly](https://github.com/famedly).
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of
 conduct, and the process for submitting pull requests to us.
 
-For licensing information of this project, have a look at the [LICENSE](LICENSE.md)
-file within the repository.
+This project is REUSE compliant. All licensing information is embedded in SPDX
+format in each file.
 
 If you compile the open source software that we make available to develop your
 own mobile, desktop or embeddable application, and cause that application to

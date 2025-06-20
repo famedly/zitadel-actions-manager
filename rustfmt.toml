@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+#
+# SPDX-License-Identifier: CC0-1.0
+
 style_edition = "2021"
 comment_width = 80
 doc_comment_code_block_width = 80

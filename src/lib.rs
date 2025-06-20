@@ -1,4 +1,9 @@
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
+
+// SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{collections::BTreeMap as Map, fmt, fs::File, io::Error as IoError, path::Path};
 
 use as_variant::as_variant;
