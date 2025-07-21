@@ -37,7 +37,7 @@ tracing-subscriber = { version = "0.3.19", features = [
 # For zitadel-rust-client:
 anyhow = { version = "1.0.95", optional = true }
 futures = { version = "0.3.31", optional = true }
-zitadel-rust-client = { git = "https://github.com/famedly/zitadel-rust-client.git", version = "0.7.0", optional = true, default-features = false }
+zitadel-rust-client = { git = "https://github.com/famedly/zitadel-rust-client.git", tag = "v0.7.0", optional = true, default-features = false }
 
 [features]
 cli = ["clap", "simple-client", "tokio", "tracing-subscriber"]
