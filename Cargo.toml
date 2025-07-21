@@ -1,6 +1,6 @@
 [package]
 name = "zitadel-actions-manager"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 default-run = "zitadel-actions-sync"
 
@@ -17,36 +17,36 @@ url = "2.5.4"
 
 # For the CLI tool:
 clap = { version = "4.5.24", features = [
-    "derive",
-    "string",
-    "env",
+  "derive",
+  "string",
+  "env",
 ], optional = true }
 jsonwebtoken = { version = "9.3.0", optional = true }
 reqwest = { version = "0.12.12", features = ["json"], optional = true }
 serde_json = { version = "1.0.135", optional = true }
 time = { version = "0.3.37", optional = true }
 tokio = { version = "1.44.2", features = [
-    "macros",
-    "rt",
-    "rt-multi-thread",
+  "macros",
+  "rt",
+  "rt-multi-thread",
 ], optional = true }
 tracing-subscriber = { version = "0.3.19", features = [
-    "env-filter",
+  "env-filter",
 ], optional = true }
 
 # For zitadel-rust-client:
 anyhow = { version = "1.0.95", optional = true }
 futures = { version = "0.3.31", optional = true }
-zitadel-rust-client = { git = "https://github.com/famedly/zitadel-rust-client.git", tag = "v0.7.0", optional = true, default-features = false }
+zitadel-rust-client = { git = "https://github.com/famedly/zitadel-rust-client.git", tag = "v0.7.1", optional = true, default-features = false }
 
 [features]
 cli = ["clap", "simple-client", "tokio", "tracing-subscriber"]
 simple-client = [
-    "famedly_rust_utils/reqwest",
-    "jsonwebtoken",
-    "reqwest",
-    "serde_json",
-    "time",
+  "famedly_rust_utils/reqwest",
+  "jsonwebtoken",
+  "reqwest",
+  "serde_json",
+  "time",
 ]
 zitadel-rust-client = ["anyhow", "dep:zitadel-rust-client", "futures"]
 
@@ -63,9 +63,9 @@ tokio = { version = "1.44.2", features = ["macros", "rt", "rt-multi-thread"] }
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = [
-    "git",
-    "gitcl",
-    "build",
+  "git",
+  "gitcl",
+  "build",
 ] } # vergen passes metadata like the version and git commit hash to cargo as a compile-time environment variables
 
 [lints.rust]

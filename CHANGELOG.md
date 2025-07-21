@@ -2,9 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2025-07-21
+
+### Fix
+
+- Use `tag` instead of `version` for dependencies from GitHub
+
 ## [0.3.1] - 2025-06-30
 
-### 🚜 Refactor
+### Refactor
 
 - Update zitadel-rust-client version
 
