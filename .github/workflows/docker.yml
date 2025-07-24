@@ -2,12 +2,12 @@ name: "Docker"
 
 on:
   push:
-    branches: [ "main" ]
-    tags: [ "*" ]
+    branches: ["main"]
+    tags: ["*"]
 
 jobs:
   build:
-    uses: famedly/backend-build-workflows/.github/workflows/docker-backend.yml@main
+    uses: famedly/backend-build-workflows/.github/workflows/docker-backend.yml@v3
     secrets: inherit
     with:
-      name: zitadel-actions-manager
+      targets: zitadel-actions-manager

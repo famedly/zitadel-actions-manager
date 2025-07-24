@@ -16,13 +16,14 @@ defined in a declarative way.
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
-- [V1 Data model](#v1-data-model)
-- [V2 Data model](#v2-data-model)
-- [CLI tool usage](#cli-tool-usage)
-- [Library usage](#library-usage)
-- [Testing](#testing)
-- [Pre-commit usage](#pre-commit-usage)
-- [Famedly](#famedly)
+- [Zitadel Actions Manager](#zitadel-actions-manager)
+  - [V1 Data model](#v1-data-model)
+  - [V2 Data model](#v2-data-model)
+  - [CLI tool usage](#cli-tool-usage)
+  - [Library usage](#library-usage)
+  - [Testing](#testing)
+  - [Pre-commit usage](#pre-commit-usage)
+  - [Famedly](#famedly)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -155,7 +156,7 @@ For v2 actions there are similarly named (`load` and `sync`) functions in `v2` m
 ## Testing
 
 ```sh
-cargo nextest run
+cargo nextest run --workspace --all-features
 ```
 
 ## Pre-commit usage
