@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3] - 2025-07-31
+
+### Miscellaneous Tasks
+
+- Bump zitadel-rust-client to v0.7.2
+
 ## [0.3.2] - 2025-07-21
 
 ### Fix
