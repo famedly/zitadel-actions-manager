@@ -2337,8 +2337,8 @@ dependencies = [
 
 [[package]]
 name = "zitadel-rust-client"
-version = "0.7.1"
-source = "git+https://github.com/famedly/zitadel-rust-client.git?tag=v0.7.1#e4c82ebf21debe867772b2c92791b2f5dfa502cb"
+version = "0.7.2"
+source = "git+https://github.com/famedly/zitadel-rust-client.git?tag=v0.7.2#dd5ce20e744848bc00f79512cf55f40a41f80832"
 dependencies = [
  "anyhow",
  "anyhow_ext",
