@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "zitadel-rust-client")]
+use crate::instrument;
 use crate::{Action, LoadedScript};
 
 pub trait ZitadelInterface {
@@ -272,7 +274,7 @@ impl ZitadelInterface for zitadel_rust_client::v2::Zitadel {
 
 #[cfg(feature = "zitadel-rust-client")]
 impl ZitadelHandleCreateOnly for zitadel_rust_client::v2::Zitadel {
-    #[tracing::instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn create_action(
         &self,
         action: ActionCreate,
@@ -286,7 +288,7 @@ impl ZitadelHandleCreateOnly for zitadel_rust_client::v2::Zitadel {
             .context("Response missing id field")?)
     }
 
-    #[tracing::instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn set_trigger_actions(
         &self,
         flow_type: &str,
@@ -309,7 +311,7 @@ impl ZitadelHandleCreateOnly for zitadel_rust_client::v2::Zitadel {
 
 #[cfg(feature = "zitadel-rust-client")]
 impl ZitadelHandle for zitadel_rust_client::v2::Zitadel {
-    #[tracing::instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn search_actions_by_name(
         &self,
         name: &str,
@@ -331,7 +333,7 @@ impl ZitadelHandle for zitadel_rust_client::v2::Zitadel {
             .map_err(|f| anyhow!("Response missing {f} field"))?)
     }
 
-    #[tracing::instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn update_action(
         &self,
         id: &str,
@@ -342,13 +344,13 @@ impl ZitadelHandle for zitadel_rust_client::v2::Zitadel {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn delete_action(&self, id: &str, org_id: Option<String>) -> Result<(), Self::Err> {
         self.delete_action(id.into(), org_id).await?;
         Ok(())
     }
 
-    #[tracing::instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn get_triggers(
         &self,
         flow_type: &str,
@@ -441,7 +443,7 @@ use {
 
 #[cfg(feature = "zitadel-rust-client")]
 impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
-    #[tracing::instrument(skip_all, level = "error", fields(name = req_.name))]
+    #[instrument(skip_all, fields(name = req_.name))]
     async fn create_target(&self, req_: CreateTarget) -> Result<TargetCreated, Self::Err> {
         let mut req = V2betaCreateTargetRequest::new()
             .with_name(req_.name)
@@ -469,7 +471,7 @@ impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
         })
     }
 
-    #[tracing::instrument(skip_all, level = "error", fields(id))]
+    #[instrument(skip_all, fields(id))]
     async fn update_target(
         &self,
         id: &str,
@@ -501,13 +503,13 @@ impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
         })
     }
 
-    #[tracing::instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn delete_target(&self, id: &str) -> Result<(), Self::Err> {
         self.delete_target(id).await?;
         Ok(())
     }
 
-    #[tracing::instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err> {
         let target = self
             .list_targets(
@@ -551,7 +553,7 @@ impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
 
     // Writing these two last methods manually was soul crushing.
     // Please use AI next time, spare yourself.
-    #[tracing::instrument(skip_all, level = "error")]
+    #[instrument(skip_all)]
     async fn set_execution(&self, req: Execution) -> Result<(), Self::Err> {
         let condition = match req.condition {
             ExecutionCondition::request(cnd) => V2betaCondition::new().with_request(match cnd {
@@ -586,7 +588,7 @@ impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, level = "error")]
+    #[instrument(skip_all)]
     async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err> {
         Ok(self
             .list_executions(&None, &None)

@@ -1,8 +1,7 @@
 use famedly_rust_utils::{reqwest::*, BaseUrl, GenericCombinators};
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
 
-use crate::zitadel::*;
+use crate::{instrument, zitadel::*};
 
 /// Header for Zitadel organization ID
 const HEADER_ZITADEL_ORGANIZATION_ID: &str = "x-zitadel-orgid";
@@ -91,7 +90,7 @@ impl ZitadelInterface for SimpleZitadelClient {
 }
 
 impl ZitadelHandleCreateOnly for SimpleZitadelClient {
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn create_action(
         &self,
         action: ActionCreate,
@@ -118,7 +117,7 @@ impl ZitadelHandleCreateOnly for SimpleZitadelClient {
             .id)
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn set_trigger_actions(
         &self,
         flow_type: &str,
@@ -145,7 +144,7 @@ impl ZitadelHandleCreateOnly for SimpleZitadelClient {
 }
 
 impl ZitadelHandle for SimpleZitadelClient {
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn search_actions_by_name(
         &self,
         name: &str,
@@ -183,7 +182,7 @@ impl ZitadelHandle for SimpleZitadelClient {
             .and_then(|mut result| result.pop()))
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn update_action(
         &self,
         id: &str,
@@ -209,7 +208,7 @@ impl ZitadelHandle for SimpleZitadelClient {
         Ok(())
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn delete_action(&self, id: &str, org_id: Option<String>) -> Result<(), Self::Err> {
         self.client
             .delete(
@@ -230,7 +229,7 @@ impl ZitadelHandle for SimpleZitadelClient {
         Ok(())
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn get_triggers(
         &self,
         flow_type: &str,
@@ -261,7 +260,7 @@ impl ZitadelHandle for SimpleZitadelClient {
 }
 
 impl ZitadelHandleV2 for SimpleZitadelClient {
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn create_target(&self, req: CreateTarget) -> Result<TargetCreated, Self::Err> {
         Ok(self
             .client
@@ -278,7 +277,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
             .map_err(E::from)?)
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err> {
         #[derive(Deserialize)]
         struct Response {
@@ -309,7 +308,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
             .and_then(|mut result| result.pop()))
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn update_target(&self, id: &str, req: UpdateTarget) -> Result<TargetUpdated, Self::Err> {
         Ok(self
             .client
@@ -331,7 +330,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
             .map_err(E::from)?)
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn delete_target(&self, id: &str) -> Result<(), Self::Err> {
         self.client
             .delete(
@@ -349,7 +348,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
         Ok(())
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn set_execution(&self, req: Execution) -> Result<(), Self::Err> {
         self.client
             .put(self.url.join("v2beta/actions/executions").map_err(E::from)?)
@@ -363,7 +362,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
         Ok(())
     }
 
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err> {
         #[derive(Deserialize)]
         struct Response {
@@ -395,7 +394,7 @@ pub struct ServiceAccount {
     user_id: String,
 }
 
-#[instrument(skip(sa, url), fields(%url), level = "error")]
+#[instrument(skip(sa, url), fields(%url))]
 pub async fn auth_with_service_account(
     url: &BaseUrl,
     aud: &str,
@@ -447,7 +446,7 @@ pub async fn auth_with_service_account(
 }
 
 impl SimpleZitadelClient {
-    #[instrument(skip(self), level = "error")]
+    #[instrument(skip(self))]
     pub async fn get_all_orgs(
         &self,
         offset: u64,

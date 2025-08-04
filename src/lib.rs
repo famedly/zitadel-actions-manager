@@ -3,8 +3,13 @@ use std::{collections::BTreeMap as Map, fmt, fs::File, io::Error as IoError, pat
 
 use as_variant::as_variant;
 use famedly_rust_utils::GenericCombinators;
+#[cfg(coverage)]
+pub use proc_macro_aliases::instrument;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::info;
+// https://github.com/tokio-rs/tracing/issues/2082
+#[cfg(not(coverage))]
+pub use tracing::instrument;
 
 use crate::zitadel::*;
 
@@ -37,7 +42,7 @@ pub type Actions<Script> = Map<String, Option<Action<Script>>>;
 /// Full set for flows definitions (flows.yaml)
 pub type Flows = Map<String, Map<String, Vec<String>>>;
 
-#[instrument(skip_all, level = "error", fields(org_id = org_id))]
+#[instrument(skip_all, fields(org_id))]
 pub async fn sync<Z: ZitadelHandle>(
     org_id: Option<String>,
     zitadel: &Z,
@@ -144,7 +149,7 @@ pub async fn sync<Z: ZitadelHandle>(
 /// This should be used only for newly created organizations or fresh instances.
 /// The zitadel may return an error if there are already existing actions or
 /// triggers
-#[instrument(skip_all, level = "error", fields(org_id = org_id))]
+#[instrument(skip_all, fields(org_id))]
 pub async fn create_only<Z: ZitadelHandleCreateOnly>(
     org_id: Option<String>,
     zitadel: &Z,
@@ -192,7 +197,7 @@ pub enum ReadYamlFileError {
     Parsing(#[from] serde_yaml::Error),
 }
 
-#[instrument(level = "error")]
+#[instrument]
 pub fn load(
     dir: &Path,
     actions: Option<&Path>,
@@ -228,7 +233,7 @@ pub fn load_actions(
 ) -> Result<Actions<LoadedScript>, Traced<IoError>> {
     use std::io::Read;
     let load_script = |name: &str| {
-        tracing::error_span!("load_script", %name).in_scope(|| {
+        tracing::info_span!("load_script", %name).in_scope(|| {
             let mut script = String::new();
             File::open(dir.join([name, ".js"].concat()))
                 .map_err(Traced::new)?
@@ -274,7 +279,7 @@ pub fn load_actions(
 }
 
 #[doc(hidden)]
-#[instrument(level = "error")]
+#[instrument]
 pub fn from_yaml_file<T: DeserializeOwned, P: fmt::Debug + AsRef<Path>>(
     path: P,
 ) -> Result<T, Traced<ReadYamlFileError>> {

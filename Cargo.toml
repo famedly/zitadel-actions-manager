@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "./proc_macro_aliases"]
+resolver = "2"
+
 [package]
 name = "zitadel-actions-manager"
 version = "0.3.3"
@@ -14,6 +18,7 @@ tracing = "0.1.41"
 tracing-error = "0.2.1"
 trait-variant = "0.1.2"
 url = "2.5.4"
+proc_macro_aliases = { path = "./proc_macro_aliases" }
 
 # For the CLI tool:
 clap = { version = "4.5.24", features = [
@@ -68,6 +73,9 @@ vergen = { version = "8.2.6", features = [
     "build",
 ] } # vergen passes metadata like the version and git commit hash to cargo as a compile-time environment variables
 
+[package.metadata.cargo-udeps.ignore]
+normal = ["proc_macro_aliases"]
+
 [lints.rust]
 dead_code = "warn"
 missing_debug_implementations = "warn"
@@ -77,6 +85,7 @@ trivial_numeric_casts = "warn"
 unused_extern_crates = "warn"
 unused_import_braces = "warn"
 unused_qualifications = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
 [lints.clippy]
 tabs_in_doc_comments = "allow"

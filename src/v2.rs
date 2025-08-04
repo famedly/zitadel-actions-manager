@@ -3,10 +3,10 @@ use std::{collections::BTreeMap as Map, path::Path};
 use as_variant::as_variant;
 use famedly_rust_utils::GenericCombinators;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::info;
 
 use crate::{
-    from_yaml_file,
+    from_yaml_file, instrument,
     zitadel::{CreateTarget, Execution, FoundTarget, TargetType, UpdateTarget, ZitadelHandleV2},
     ReadYamlFileError, Traced,
 };
@@ -58,7 +58,7 @@ impl Target {
     }
 }
 
-#[instrument(skip_all, level = "error")]
+#[instrument(skip_all)]
 pub async fn sync<Z: ZitadelHandleV2>(
     zitadel: &Z,
     targets: Targets,
@@ -147,7 +147,7 @@ pub async fn sync<Z: ZitadelHandleV2>(
     Ok(())
 }
 
-#[instrument(level = "error")]
+#[instrument]
 pub fn load(
     dir: &Path,
     targets: Option<&Path>,

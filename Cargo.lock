@@ -1168,6 +1168,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc_macro_aliases"
+version = "0.1.0"
+dependencies = [
+ "tracing-attributes",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2317,6 +2324,7 @@ dependencies = [
  "famedly_rust_utils",
  "futures",
  "jsonwebtoken",
+ "proc_macro_aliases",
  "reqwest",
  "serde",
  "serde_json",
