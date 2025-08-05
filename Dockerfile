@@ -1,4 +1,4 @@
-FROM docker-oss.nexus.famedly.de/rust-container:nightly AS builder
+FROM registry.famedly.net/docker-oss/rust-container:nightly AS builder
 
 COPY . /app
 WORKDIR /app

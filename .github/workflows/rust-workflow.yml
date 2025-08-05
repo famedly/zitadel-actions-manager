@@ -22,7 +22,7 @@ env:
 # but had to separate tests to give docker support.
 jobs:
   simple-checks:
-    container: docker-oss.nexus.famedly.de/rust-container:nightly
+    container: registry.famedly.net/docker-oss/rust-container:nightly
     runs-on: ubuntu-latest
     steps:
       - name: Checkout current repository
