@@ -2,7 +2,7 @@ services:
   zitadel:
     container_name: zitadel
     restart: 'unless-stopped'
-    image: 'ghcr.io/zitadel/zitadel:v3.2.3'
+    image: 'ghcr.io/zitadel/zitadel:v4.0.1'
     command: 'start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled'
     environment:
       - 'ZITADEL_FIRSTINSTANCE_MACHINEKEYPATH=/machinekey/service-account.json'

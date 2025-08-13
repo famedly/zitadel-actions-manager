@@ -7,9 +7,17 @@ path = "junit.xml"
 store-success-output = true
 store-failure-output = true
 
-[script.start-e2e-env]
+[scripts.setup.start-e2e-env]
 command =  "./.config/starte2e.sh"
 
 [[profile.default.scripts]]
 filter = "test(e2e)"
 setup = "start-e2e-env"
+
+# Running v2 tests sequentially because there's a race condition
+[[profile.default.overrides]]
+filter = "test(v2)"
+test-group = "v2"
+
+[test-groups]
+v2 = { max-threads = 1 }

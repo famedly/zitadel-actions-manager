@@ -281,11 +281,11 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
     async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err> {
         #[derive(Deserialize)]
         struct Response {
-            result: Option<Vec<FoundTarget>>,
+            targets: Option<Vec<FoundTarget>>,
         }
         Ok(self
             .client
-            .post(self.url.join("v2beta/actions/targets/_search").map_err(E::from)?)
+            .post(self.url.join("v2beta/actions/targets/search").map_err(E::from)?)
             .json(&serde_json::json!({
                 "pagination": { "limit": 1 },
                 "filters": [{
@@ -304,7 +304,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
             .json::<Response>()
             .await
             .map_err(E::from)?
-            .result
+            .targets
             .and_then(|mut result| result.pop()))
     }
 
@@ -370,7 +370,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("v2beta/actions/executions/_search").map_err(E::from)?)
+            .post(self.url.join("v2beta/actions/executions/search").map_err(E::from)?)
             .query(&[("pagination.limit", "1000")])
             .send()
             .await

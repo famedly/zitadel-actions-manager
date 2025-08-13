@@ -511,19 +511,19 @@ impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
 
     #[instrument(skip(self))]
     async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err> {
-        let target = self
-            .list_targets(
-                Some(PaginationParams::default().with_page_size(1)),
-                None,
-                Some(vec![V2betaTargetSearchFilter::new().with_target_name_filter(
-                    V2betaTargetNameFilter::new()
-                        .with_target_name(name.to_owned())
-                        .with_method(V2betaTextFilterMethod::TEXT_FILTER_METHOD_EQUALS),
-                )]),
-            )?
-            .next()
-            .await
-            .transpose()?;
+        let target = std::pin::pin!(self.list_targets(
+            &Some(PaginationParams::default().with_page_size(1)),
+            &None,
+            &Some(vec![V2betaTargetSearchFilter::new().with_target_name_filter(
+                V2betaTargetNameFilter::new()
+                    .with_target_name(name.to_owned())
+                    .with_method(V2betaTextFilterMethod::TEXT_FILTER_METHOD_EQUALS),
+            )]),
+        ))
+        .next()
+        .await
+        .transpose()?;
+
         let Some(target) = target else {
             return Ok(None);
         };

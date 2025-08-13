@@ -178,6 +178,8 @@ mod test {
         )
         .await
         .unwrap();
+        sync(&zitadel, targets.clone(), executions.clone()).await.unwrap();
+        tracing::info!("One sync successful, what about next one");
         sync(&zitadel, targets, executions).await.unwrap();
     }
 }
