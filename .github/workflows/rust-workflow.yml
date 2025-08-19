@@ -21,6 +21,12 @@ env:
 # Based on famedly/backend-build-workflows/.github/workflows/rust-workflow.yml@v1
 # but had to separate tests to give docker support.
 jobs:
+  publish:
+    needs: [tests, simple-checks]
+    uses: famedly/backend-build-workflows/.github/workflows/publish-crate.yml@v1
+    secrets:
+      CI_SSH_PRIVATE_KEY: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+      registry-auth-token: ${{ secrets.SHIPYARD_RS_TOKEN }}
   simple-checks:
     container: registry.famedly.net/docker-oss/rust-container:nightly
     runs-on: ubuntu-latest
