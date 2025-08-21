@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+//
+// SPDX-License-Identifier: Apache-2.0
+
+//! Actions v2 sync.
 use std::{collections::BTreeMap as Map, path::Path};
 
 use as_variant::as_variant;
@@ -11,12 +16,36 @@ use crate::{
     ReadYamlFileError, Traced,
 };
 
+#[doc(hidden)]
 pub const DEFAULT_TARGETS_FILE: &str = "targets.yaml";
+#[doc(hidden)]
 pub const DEFAULT_EXECUTIONS_FILE: &str = "executions.yaml";
 
+/// Targets definitions (`targets.yaml`)
+///
+/// ```yaml
+/// target1:
+///   restAsync: {}
+///   endpoint: http://example.com/call_me
+///   timeout: 5s
+///
+/// # delete target2 target if it exists
+/// target2: null
+/// ```
 pub type Targets = Map<String, Option<Target>>;
+
+/// Execution definitions (`executions.yaml`)
+///
+/// ```yaml
+/// - condition: {event: {event: user.human.added}}
+///   targets: [target1] # targets by their names defined in targets.yaml
+///
+/// - condition: {request: {method: /zitadel.user.v2.UserService/AddHumanUser}}
+///   targets: [target1]
+/// ```
 pub type Executions = Vec<Execution>;
 
+/// Target definition. Reflects HTTP API types exposed by Zitadel.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Target {
     #[serde(flatten)]
@@ -58,6 +87,8 @@ impl Target {
     }
 }
 
+/// Syncs v2 provided loaded targets and executions with running Zitadel
+/// instance. Targets marked as `None` will be deleted.
 #[instrument(skip_all)]
 pub async fn sync<Z: ZitadelHandleV2>(
     zitadel: &Z,
@@ -121,11 +152,10 @@ pub async fn sync<Z: ZitadelHandleV2>(
 
         if let Some(existing_execution) =
             existing_executions.iter().find(|execution| &execution.condition == condition)
+            && existing_execution.targets == target_ids
         {
-            if existing_execution.targets == target_ids {
-                info!(?condition, ?target_ids, "Triggers are unchanged, skipping");
-                continue;
-            }
+            info!(?condition, ?target_ids, "Triggers are unchanged, skipping");
+            continue;
         }
 
         info!(?condition, ?target_ids, "Setting targets execution");
@@ -147,6 +177,13 @@ pub async fn sync<Z: ZitadelHandleV2>(
     Ok(())
 }
 
+/// Loads v2 targets and executions.
+///
+/// - `dir` is a directory path to where source targets and executions.
+/// - `targets` is an optional path relative to `dir`, `targets.yaml` by
+///   default.
+/// - `executions` is an optional path relative to `dir`, `executions.yaml` by
+///   default.
 #[instrument]
 pub fn load(
     dir: &Path,

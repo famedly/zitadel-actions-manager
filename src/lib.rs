@@ -1,19 +1,69 @@
+#![cfg_attr(all(doc, not(doctest)), feature(doc_auto_cfg))]
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
+// SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+//
+// SPDX-License-Identifier: Apache-2.0
+
+//! Sync v1 and v2 Zitadel IdP actions defined in a declarative way.
+//!
+//! Depending on the scenario, you need to define the actions and triggers. You
+//! can do that statically in code by just constructing `Actions<LoadedScript>`
+//! and `Flows`:
+//! ```
+//! # use zitadel_actions_manager::{Action, LoadedScript, Actions, Flows};
+//! let actions: Actions<LoadedScript> = [(
+//!     "action1".to_owned(),
+//!     Some(Action {
+//!         timeout: None,
+//!         allowed_to_fail: false,
+//!         script: "function action1(ctx, api) {}".to_owned(),
+//!     }),
+//! )]
+//! .into();
+//! let flows: Flows = [("2".into(), [("4".into(), vec!["action1".to_owned()])].into())].into();
+//! ```
+//! or you can [`load`] them from files:
+//! ```
+//! # use std::path::Path;
+//! let (actions, flows) = zitadel_actions_manager::load(
+//!     &Path::new("example-actions"),
+//!     None,
+//!     None,
+//! )
+//! .unwrap();
+//! ```
+//! and then [`sync`] actions with the constructed actions and flows.
+//!
+//! If you need to sync v1 actions for multiple organizations, see `sync_v1`
+//! function in `src/main.rs` for reference.
+//!
+//! This crate comes with two clients for zitadel, simple ad-hoc
+//! [`SimpleZitadelClient`](simple_zitadel_client::SimpleZitadelClient) and
+//! [`famedly_zitadel_rust_client::v2::Zitadel`]. To use your own client you
+//! need to implement [`ZitadelHandleCreateOnly`], [`ZitadelHandle`] and
+//! [`ZitadelHandleV2`] traits for your zitadel client.
+//!
+//! For v2 actions the flow is similar: first you need to define in code or load
+//! from files two structures: [`v2::Targets`] and [`v2::Executions`] and then
+//! run [`v2::sync`] function.
+
 use std::{collections::BTreeMap as Map, fmt, fs::File, io::Error as IoError, path::Path};
 
 use as_variant::as_variant;
 use famedly_rust_utils::GenericCombinators;
 #[cfg(coverage)]
-pub use proc_macro_aliases::instrument;
+pub(crate) use proc_macro_aliases::instrument;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::info;
 // https://github.com/tokio-rs/tracing/issues/2082
 #[cfg(not(coverage))]
-pub use tracing::instrument;
+pub(crate) use tracing::instrument;
 
 use crate::zitadel::*;
 
+#[doc(hidden)]
 pub const DEFAULT_ACTIONS_FILE: &str = "actions.yaml";
+#[doc(hidden)]
 pub const DEFAULT_FLOWS_FILE: &str = "flows.yaml";
 
 #[cfg(feature = "simple-client")]
@@ -21,7 +71,7 @@ pub mod simple_zitadel_client;
 pub mod v2;
 pub mod zitadel;
 
-/// Zitadel action definition
+/// Zitadel v1 action definition
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
@@ -32,17 +82,41 @@ pub struct Action<Script> {
     pub script: Script,
 }
 
-/// A generic parameter to [Action] representing fully loaded script
+/// A generic parameter to [`Action`] representing fully loaded script
 pub type LoadedScript = String;
-/// A generic parameter to [Action] representing optional script that may need
+/// A generic parameter to [`Action`] representing optional script that may need
 /// to be loaded from file
 pub type OptionallyLoadedScript = Option<String>;
 
-/// Full set for action definitions (actions.yaml)
+/// Full set for action definitions (`actions.yaml`)
+///
+/// ```yaml
+/// action1:
+///   # string, optional, for the exact format dig the zitadel docs
+///   timeout: 'timeout'
+///   # bool, optional
+///   allowedToFail: false
+///   # string, optional, if not set a file action1.js will be sourced
+///   script: |
+///     function action1(ctx, api) {
+///       ...
+///     }
+///
+/// # action that needs to be deleted if it exists in zitadel
+/// action2: null
+/// ```
 pub type Actions<Script> = Map<String, Option<Action<Script>>>;
-/// Full set for flows definitions (flows.yaml)
+
+/// Full set for flows definitions (`flows.yaml`)
+///
+/// ```yaml
+/// FLOW_TYPE_EXTERNAL_AUTHENTICATION:
+///   TRIGGER_TYPE_PRE_CREATION: [action1]
+/// ```
 pub type Flows = Map<String, Map<String, Vec<String>>>;
 
+/// Syncs v1 provided loaded actions and flows with running Zitadel instance.
+/// Actions marked as `None` will be removed.
 #[instrument(skip_all, fields(org_id))]
 pub async fn sync<Z: ZitadelHandle>(
     org_id: Option<String>,
@@ -113,18 +187,16 @@ pub async fn sync<Z: ZitadelHandle>(
 
             if let Some(trigger) =
                 existing_triggers.iter().find(|trigger| trigger.trigger_type.id == trigger_type)
-            {
-                if trigger
+                && trigger
                     .actions
                     .iter()
                     .map(|action| action.id.clone())
                     .collect::<Vec<_>>()
                     .mutate(|ids| ids.sort())
                     == action_ids
-                {
-                    info!(%flow_type, %trigger_type, ?action_ids, "Triggers are unchanged, skipping");
-                    continue;
-                }
+            {
+                info!(%flow_type, %trigger_type, ?action_ids, "Triggers are unchanged, skipping");
+                continue;
             }
 
             info!(%flow_type, %trigger_type, ?action_ids, "Setting actions trigger");
@@ -134,7 +206,7 @@ pub async fn sync<Z: ZitadelHandle>(
         }
     }
 
-    // 4. Delete actions that are marked as `null`
+    // 4. Delete actions that are marked as `deleted`
     for action in names_to_delete.into_iter().filter_map(|name| pre_existing_actions.get(&name)) {
         info!(id = action.id, name = action.name, "Deleting action");
         zitadel.delete_action(&action.id, org_id.clone()).await?;
@@ -195,6 +267,12 @@ pub enum ReadYamlFileError {
     Parsing(#[from] serde_yaml::Error),
 }
 
+/// Loads v1 actions from files.
+///
+/// - `dir` is a directory path to where source actions, flows and script files.
+/// - `actions` is an optional path relative to `dir`, `actions.yaml` by
+///   default.
+/// - `flows` is an optional path relative to `dir`, `flows.yaml` by default.
 #[instrument]
 pub fn load(
     dir: &Path,
@@ -290,6 +368,7 @@ pub fn from_yaml_file<T: DeserializeOwned, P: fmt::Debug + AsRef<Path>>(
 
 // TODO: factor out into `famedly_rust_utils`:
 
+/// Error wrapper for the errors used in this crate.
 #[derive(Debug, thiserror::Error)]
 pub struct Traced<E> {
     pub error: E,
@@ -318,7 +397,6 @@ impl<E: fmt::Display> fmt::Display for Traced<E> {
 }
 
 // until marker traits are stable, (need impls overloading)
-#[macro_export]
 macro_rules! impl_traced_from {
     ($($t:ty),+) => {
         $(
@@ -330,5 +408,6 @@ macro_rules! impl_traced_from {
         )+
     }
 }
+pub(crate) use impl_traced_from;
 
 impl_traced_from!(Box<dyn std::error::Error>);

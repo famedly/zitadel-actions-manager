@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+#
+# SPDX-License-Identifier: Apache-2.0
+
 FROM registry.famedly.net/docker-oss/rust-container:nightly AS builder
 
 COPY . /app

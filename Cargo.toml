@@ -1,12 +1,28 @@
+# SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+#
+# SPDX-License-Identifier: Apache-2.0
+
 [workspace]
 members = [".", "./proc_macro_aliases"]
-resolver = "2"
+resolver = "3"
 
 [package]
 name = "zitadel-actions-manager"
 version = "0.4.0"
-edition = "2021"
+edition = "2024"
+description = "Sync v1 and v2 Zitadel IdP actions defined in a declarative way"
 default-run = "zitadel-actions-sync"
+repository = "https://github.com/famedly/zitadel-actions-manager"
+documentation = "https://docs.rs/zitadel-actions-manager/latest"
+license = "Apache-2.0"
+
+[[bin]]
+name = "zitadel-actions-sync"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 as_variant = "1.2.0"
@@ -19,7 +35,6 @@ tracing-error = "0.2.1"
 trait-variant = "0.1.2"
 url = "2.5.4"
 proc_macro_aliases = { path = "./proc_macro_aliases" }
-anyhow = { version = "1.0.95" }
 
 # For the CLI tool:
 clap = { version = "4.5.24", features = [
@@ -41,7 +56,8 @@ tracing-subscriber = { version = "0.3.19", features = [
     "env-filter",
 ], optional = true }
 
-# For zitadel-rust-client:
+# For famedly-zitadel-rust-client:
+anyhow = { version = "1.0.95", optional = true }
 futures = { version = "0.3.31", optional = true }
 famedly-zitadel-rust-client = { version = "0.9", optional = true }
 
@@ -56,11 +72,6 @@ simple-client = [
 ]
 famedly-zitadel-rust-client = ["dep:famedly-zitadel-rust-client", "futures"]
 
-[[bin]]
-name = "zitadel-actions-sync"
-path = "src/main.rs"
-required-features = ["cli"]
-
 [dev-dependencies]
 serde_json = "1.0.135"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
@@ -72,6 +83,7 @@ test-case = "3"
 wiremock = "0.6.5"
 famedly-zitadel-rust-client = "0.9"
 serde_yaml = "0.9.34"
+anyhow = "1.0.95"
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = [
@@ -159,7 +171,6 @@ same_functions_in_if_condition = "warn"
 same_name_method = "warn"
 semicolon_if_nothing_returned = "warn"
 str_to_string = "warn"
-string_to_string = "warn"
 suboptimal_flops = "warn"
 suspicious_operation_groupings = "warn"
 too_many_lines = "warn"

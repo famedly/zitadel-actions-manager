@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+
+SPDX-License-Identifier: Apache-2.0
+-->
 
 # Zitadel Actions Manager
 
@@ -16,14 +21,13 @@ defined in a declarative way.
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
-- [Zitadel Actions Manager](#zitadel-actions-manager)
-  - [V1 Data model](#v1-data-model)
-  - [V2 Data model](#v2-data-model)
-  - [CLI tool usage](#cli-tool-usage)
-  - [Library usage](#library-usage)
-  - [Testing](#testing)
-  - [Pre-commit usage](#pre-commit-usage)
-  - [Famedly](#famedly)
+- [V1 Data model](#v1-data-model)
+- [V2 Data model](#v2-data-model)
+- [CLI tool usage](#cli-tool-usage)
+- [Library usage](#library-usage)
+- [Testing](#testing)
+- [Pre-commit usage](#pre-commit-usage)
+- [Famedly](#famedly)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -89,7 +93,7 @@ The structures of both targets and executions are meant to replicate Zitadel's
 Install with
 
 ```sh
-cargo install --features cli --path .
+cargo install --features cli zitadel-actions-manager
 ```
 
 To perform sync/migration, run:
@@ -104,10 +108,15 @@ Or run directly from source
 cargo run --features cli -- [OPTIONS]
 ```
 
+Or use our docker container
+```
+docker run --it registry.famedly.net/docker-oss/zitadel-actions-manager:latest [OPTIONS]
+```
+
 <!-- `$ cargo run --features cli -- -h` -->
 
 ```
-A tool to sync/migrate Zitadel actions defined in a declarative way
+Sync v1 and v2 Zitadel IdP actions defined in a declarative way
 
 Usage: zitadel-actions-sync [OPTIONS]
 
@@ -150,7 +159,7 @@ cargo run --features cli -- \
 ## Library usage
 
 Depending on the scenario, you need to define the actions and triggers. You can do that statically
-in code by just constructing `Actions<Loaded>` and `Flows` (with the help of `include!` macro) or have
+in code by just constructing `Actions<LoadedScript>` and `Flows` (with the help of `include!` macro) or have
 actions defined in the files and loaded on start. For this scenario you can call `load`
 and then `sync` functions.
 
@@ -182,11 +191,8 @@ cargo nextest run --workspace --all-features
 We think that software for healthcare should be open source, so we publish most
 parts of our source code at [github.com/famedly](https://github.com/famedly).
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of
-conduct, and the process for submitting pull requests to us.
-
-For licensing information of this project, have a look at the [LICENSE](LICENSE.md)
-file within the repository.
+For licensing information of this project, have a look at the
+[LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt) file within the repository.
 
 If you compile the open source software that we make available to develop your
 own mobile, desktop or embeddable application, and cause that application to
@@ -210,4 +216,4 @@ the express prior written consent of Famedly GmbH.
 
 For more
 information take a look at [Famedly.com](https://famedly.com) or contact
-us by [info@famedly.com](mailto:info@famedly.com?subject=[GitLab]%20More%20Information%20)
+us by [info@famedly.com](mailto:info@famedly.com?subject=[GitHub]%20More%20Information%20)

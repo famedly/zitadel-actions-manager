@@ -1,4 +1,12 @@
 #![allow(async_fn_in_trait)]
+// SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+//
+// SPDX-License-Identifier: Apache-2.0
+
+//! Interfaces to zitadel.
+//!
+//! Please ignore traits ending with `Prototype`, they are not meant to be
+//! public and are the result of a [`trait_variant::make`] quirks.
 
 use serde::{Deserialize, Serialize};
 
@@ -6,10 +14,12 @@ use serde::{Deserialize, Serialize};
 use crate::instrument;
 use crate::{Action, LoadedScript};
 
+/// Supertrait for all handles defined here.
 pub trait ZitadelInterface {
     type Err: Send + Sync + std::error::Error + 'static;
 }
 
+/// Zitadel handle necessary for [`crate::create_only`].
 #[trait_variant::make(ZitadelHandleCreateOnly: Send + Sync)]
 pub trait ZitadelHandleCreateOnlyPrototype: ZitadelInterface {
     async fn create_action(
@@ -27,6 +37,7 @@ pub trait ZitadelHandleCreateOnlyPrototype: ZitadelInterface {
     ) -> Result<(), Self::Err>;
 }
 
+/// Zitadel handle necessary for [`crate::sync`].
 #[trait_variant::make(ZitadelHandle: Send + Sync)]
 pub trait ZitadelHandlePrototype: ZitadelHandleCreateOnly + ZitadelInterface {
     async fn search_actions_by_name(
@@ -108,7 +119,7 @@ impl ActionUpdate {
 }
 
 #[must_use]
-pub fn action_is_same(action: &Action<LoadedScript>, a: &ActionSearch) -> bool {
+pub(crate) fn action_is_same(action: &Action<LoadedScript>, a: &ActionSearch) -> bool {
     action.allowed_to_fail == a.allowed_to_fail
         && action.script == a.script
         && (action.timeout == a.timeout
@@ -128,6 +139,7 @@ pub struct GetTriggersResFlowAction {
     pub actions: Vec<ActionSearch>,
 }
 
+/// Zitadel handle necessary for [`crate::v2::sync`].
 #[trait_variant::make(ZitadelHandleV2: Send + Sync)]
 pub trait ZitadelHandleV2Prototype: ZitadelInterface {
     async fn create_target(&self, req: CreateTarget) -> Result<TargetCreated, Self::Err>;

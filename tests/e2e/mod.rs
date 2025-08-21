@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{
     any,
     path::{Path, PathBuf},
@@ -63,10 +67,10 @@ impl TestZitadelHandle for SimpleZitadelClient {
         .expect("Error creating zitadel simple client")
     }
     async fn create_org(&self) -> Result<String> {
-        self.create_org(&generate_random_string::<10>()).await
+        Ok(self.create_org(&generate_random_string::<10>()).await?)
     }
     async fn list_targets_id(&self) -> Result<Vec<String>> {
-        self.list_targets_id().await
+        Ok(self.list_targets_id().await?)
     }
 }
 

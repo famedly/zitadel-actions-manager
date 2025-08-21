@@ -1,4 +1,9 @@
+// SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
+
 use std::{path::PathBuf, process::ExitCode};
 
 use clap::Parser;

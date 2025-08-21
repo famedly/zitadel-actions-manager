@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+#
+# SPDX-License-Identifier: Apache-2.0
+
 name: Rust
 
 # Trigger the CI on any tags, pushes to any branch and PRs to any branch.
@@ -30,7 +34,6 @@ jobs:
 
       - uses: famedly/backend-build-workflows/.github/actions/rust-prepare@main
         with:
-          gitlab_ssh: ${{ secrets.CI_SSH_PRIVATE_KEY}}
           gitlab_user: ${{ secrets.GITLAB_USER }}
           gitlab_pass: ${{ secrets.GITLAB_PASS }}
 
@@ -68,7 +71,6 @@ jobs:
 
       - uses: famedly/backend-build-workflows/.github/actions/rust-prepare@main
         with:
-          gitlab_ssh: ${{ secrets.CI_SSH_PRIVATE_KEY}}
           gitlab_user: ${{ secrets.GITLAB_USER }}
           gitlab_pass: ${{ secrets.GITLAB_PASS }}
 
@@ -107,3 +109,13 @@ jobs:
         uses: codecov/test-results-action@v1
         with:
           token: ${{secrets.CODECOV_TOKEN}}
+
+  publish:
+    needs: [simple-checks, tests]
+    uses: famedly/backend-build-workflows/.github/workflows/publish-crate.yml@v2
+    with:
+      registry-name: "crates-io"
+      registry-index: "https://github.com/rust-lang/crates.io-index"
+    secrets:
+      CI_SSH_PRIVATE_KEY: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+      registry-auth-token: ${{ secrets.CRATES_IO_TOKEN }}

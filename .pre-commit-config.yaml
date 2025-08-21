@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+#
+# SPDX-License-Identifier: Apache-2.0
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -28,6 +32,10 @@ repos:
         files: ^README.md$
         args:
           - --github
+  - repo: https://github.com/fsfe/reuse-tool
+    rev: v5.0.2
+    hooks:
+      - id: reuse-lint-file
   - repo: https://github.com/zimbatm/mdsh.git
     rev: v0.9.2
     hooks:

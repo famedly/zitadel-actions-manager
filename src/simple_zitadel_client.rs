@@ -1,3 +1,10 @@
+// SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+//
+// SPDX-License-Identifier: Apache-2.0
+
+//! [`reqwest`]-based simple client, with no reauth functionality. Used by the
+//! CLI tool.
+
 use famedly_rust_utils::{reqwest::*, BaseUrl, GenericCombinators};
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +14,7 @@ use crate::{instrument, zitadel::*};
 const HEADER_ZITADEL_ORGANIZATION_ID: &str = "x-zitadel-orgid";
 
 /// Simple client that requires access token. This client does not do oauth and
-/// token renewal. Used by the cli tool.
+/// token renewal. Used by the CLI tool.
 #[derive(Debug, Clone)]
 pub struct SimpleZitadelClient {
     client: reqwest::Client,
@@ -47,7 +54,10 @@ impl SimpleZitadelClient {
     }
     #[doc(hidden)]
     /// Create an organization. Used in tests.
-    pub async fn create_org(&self, org_name: &str) -> anyhow::Result<String> {
+    pub async fn create_org(
+        &self,
+        org_name: &str,
+    ) -> Result<String, Traced<SimpleZitadelClientError>> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Response {
@@ -71,7 +81,7 @@ impl SimpleZitadelClient {
     }
     #[doc(hidden)]
     /// List targets id. Used in tests.
-    pub async fn list_targets_id(&self) -> anyhow::Result<Vec<String>> {
+    pub async fn list_targets_id(&self) -> Result<Vec<String>, Traced<SimpleZitadelClientError>> {
         #[derive(Deserialize)]
         struct Response {
             #[serde(default)]
@@ -445,6 +455,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
     }
 }
 
+/// Zitadel service account
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceAccount {
@@ -453,6 +464,7 @@ pub struct ServiceAccount {
     user_id: String,
 }
 
+/// Authenticates to zitadel given a service account returning an access token.
 #[instrument(skip(sa, url), fields(%url))]
 pub async fn auth_with_service_account(
     url: &BaseUrl,
