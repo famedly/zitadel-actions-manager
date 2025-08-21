@@ -1,12 +1,12 @@
-<!--
-SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
-
-SPDX-License-Identifier: Apache-2.0
--->
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [0.4.1] - 2025-09-22
+
+### Documentation
+
+- Prepare for opensourcing
 
 ## [0.4.0] - 2025-09-19
 
@@ -35,7 +35,7 @@ All notable changes to this project will be documented in this file.
 
 ### Miscellaneous Tasks
 
-- Bump zitadel-rust-client to v0.7.2
+- Bump `zitadel-rust-client` to v0.7.2
 
 ## [0.3.2] - 2025-07-21
 
