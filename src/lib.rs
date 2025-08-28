@@ -133,13 +133,10 @@ pub async fn sync<Z: ZitadelHandle>(
         }
     }
 
-    // 4. Delete actions that are marked as `deleted`
-    for (id, name) in names_to_delete
-        .into_iter()
-        .filter_map(|name| Some((existing_actions.get(&name)?.clone(), name)))
-    {
-        info!(%id, %name, "Deleting action");
-        zitadel.delete_action(&id, org_id.clone()).await?;
+    // 4. Delete actions that are marked as `null`
+    for action in names_to_delete.into_iter().filter_map(|name| pre_existing_actions.get(&name)) {
+        info!(id = action.id, name = action.name, "Deleting action");
+        zitadel.delete_action(&action.id, org_id.clone()).await?;
     }
 
     info!("Sync successful");
@@ -262,10 +259,12 @@ pub fn load_actions(
         .collect::<Result<Map<_, _>, _>>()?;
 
     for action_name in flows.values().flat_map(|x| x.values().flat_map(|v| v.iter())) {
-        if let Some(None) = actions.get(action_name) {
-            return Err(Traced::new(IoError::other(format!(
-                "Action `{action_name}` is marked as deleted but is used in flows"
-            ))));
+        if let Some(action) = actions.get(action_name) {
+            action.as_ref().ok_or_else(|| {
+                Traced::new(IoError::other(format!(
+                    "Action `{action_name}` is marked as `null` (deleted) but is used in flows"
+                )))
+            })?;
         } else {
             let loaded_action = Some(Action {
                 timeout: None,
