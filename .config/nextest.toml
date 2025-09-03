@@ -2,22 +2,28 @@ experimental = ["setup-scripts"]
 
 [profile.ci]
 fail-fast = false
+
 [profile.ci.junit]
 path = "junit.xml"
 store-success-output = true
 store-failure-output = true
 
-[scripts.setup.start-e2e-env]
-command =  "./.config/starte2e.sh"
+[script.start-e2e-env]
+command = "./.config/starte2e.sh"
 
 [[profile.default.scripts]]
 filter = "test(e2e)"
 setup = "start-e2e-env"
 
+[[profile.default.overrides]]
+filter = "test(e2e::v1)"
+test-group = "v1"
+
 # Running v2 tests sequentially because there's a race condition
 [[profile.default.overrides]]
-filter = "test(v2)"
+filter = "test(e2e::v2)"
 test-group = "v2"
 
 [test-groups]
+v1 = { max-threads = 4 }
 v2 = { max-threads = 1 }

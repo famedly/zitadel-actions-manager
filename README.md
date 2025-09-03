@@ -30,6 +30,7 @@ defined in a declarative way.
 ## V1 Data model
 
 The actions are defined in `actions.yaml` file:
+
 ```yaml
 action1:
   # string, optional, for the exact format dig the zitadel docs
@@ -47,6 +48,7 @@ action2: null
 ```
 
 The actual triggers are defined in `flows.yaml` file:
+
 ```yaml
 FLOW_TYPE_EXTERNAL_AUTHENTICATION:
   TRIGGER_TYPE_PRE_CREATION: [action1]
@@ -58,6 +60,7 @@ to be defined in `<actionName>.js` files.
 ## V2 Data model
 
 The targets are defined in `targets.yaml` file:
+
 ```yaml
 target1:
   restAsync: {}
@@ -69,6 +72,7 @@ target2: null
 ```
 
 The executions are defined in `executions.yaml` file:
+
 ```yaml
 - condition: {event: {event: user.human.added}}
   targets: [target1] # targets by their names defined in targets.yaml
@@ -83,16 +87,19 @@ The structures of both targets and executions are meant to replicate Zitadel's
 ## CLI tool usage
 
 Install with
+
 ```sh
 cargo install --features cli --path .
 ```
 
 To perform sync/migration, run:
+
 ```sh
 zitadel-actions-sync [OPTIONS]
 ```
 
 Or run directly from source
+
 ```
 cargo run --features cli -- [OPTIONS]
 ```
@@ -124,6 +131,7 @@ Options:
 ```
 
 Example:
+
 ```sh
 docker compose down -v
 mkdir -p /tmp/zitadel-docker-test/

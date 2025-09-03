@@ -2,12 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 use crate::instrument;
 use crate::{Action, LoadedScript};
 
 pub trait ZitadelInterface {
-    type Err: Send + Sync;
+    type Err: Send + Sync + std::error::Error + 'static;
 }
 
 #[trait_variant::make(ZitadelHandleCreateOnly: Send + Sync)]
@@ -194,7 +194,7 @@ pub struct TargetUpdated {
 
 // `serde_yaml` doesn't support nested enums, thus this `singleton_map`
 // workaround, see https://github.com/dtolnay/serde-yaml/issues/363#issuecomment-1478409196
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Ord, PartialOrd)]
 pub struct Execution {
     #[serde(with = "serde_yaml::with::singleton_map")]
     pub condition: ExecutionCondition,
@@ -202,7 +202,7 @@ pub struct Execution {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Ord, PartialOrd)]
 pub enum ExecutionCondition {
     request(#[serde(with = "serde_yaml::with::singleton_map")] RequestResponseCondition),
     response(#[serde(with = "serde_yaml::with::singleton_map")] RequestResponseCondition),
@@ -211,7 +211,7 @@ pub enum ExecutionCondition {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Ord, PartialOrd)]
 pub enum RequestResponseCondition {
     method(String),
     service(String),
@@ -219,7 +219,7 @@ pub enum RequestResponseCondition {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Ord, PartialOrd)]
 pub enum EventCondition {
     event(String),
     group(String),
@@ -237,7 +237,7 @@ fn test_nested_enum_serde_yaml() {
     assert_eq!(execution, parsed_execution);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct TrueConst;
 
 impl Serialize for TrueConst {
@@ -255,25 +255,25 @@ impl<'de> Deserialize<'de> for TrueConst {
     }
 }
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 use {
     crate::{impl_traced_from, Traced},
     anyhow::{anyhow, Context},
     famedly_rust_utils::GenericCombinators,
+    famedly_zitadel_rust_client::v2::management::*,
     futures::stream::StreamExt,
-    zitadel_rust_client::v2::management::*,
 };
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 impl_traced_from!(anyhow::Error);
 
-#[cfg(feature = "zitadel-rust-client")]
-impl ZitadelInterface for zitadel_rust_client::v2::Zitadel {
+#[cfg(feature = "famedly-zitadel-rust-client")]
+impl ZitadelInterface for famedly_zitadel_rust_client::v2::Zitadel {
     type Err = Traced<anyhow::Error>;
 }
 
-#[cfg(feature = "zitadel-rust-client")]
-impl ZitadelHandleCreateOnly for zitadel_rust_client::v2::Zitadel {
+#[cfg(feature = "famedly-zitadel-rust-client")]
+impl ZitadelHandleCreateOnly for famedly_zitadel_rust_client::v2::Zitadel {
     #[instrument(skip(self))]
     async fn create_action(
         &self,
@@ -309,8 +309,8 @@ impl ZitadelHandleCreateOnly for zitadel_rust_client::v2::Zitadel {
     }
 }
 
-#[cfg(feature = "zitadel-rust-client")]
-impl ZitadelHandle for zitadel_rust_client::v2::Zitadel {
+#[cfg(feature = "famedly-zitadel-rust-client")]
+impl ZitadelHandle for famedly_zitadel_rust_client::v2::Zitadel {
     #[instrument(skip(self))]
     async fn search_actions_by_name(
         &self,
@@ -362,11 +362,11 @@ impl ZitadelHandle for zitadel_rust_client::v2::Zitadel {
     }
 }
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 const FLOW_TRIGGER_FORMAT_ERR: &str =
-    "zitadel_rust_client backend doesn't support non-numeric flow and trigger types";
+    "famedly_zitadel_rust_client backend doesn't support non-numeric flow and trigger types";
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 impl TryFrom<V1Action> for ActionSearch {
     type Error = &'static str;
     fn try_from(a: V1Action) -> Result<ActionSearch, Self::Error> {
@@ -380,7 +380,7 @@ impl TryFrom<V1Action> for ActionSearch {
     }
 }
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 impl From<ActionCreate> for V1CreateActionRequest {
     fn from(a: ActionCreate) -> Self {
         Self::new(a.name, a.script)
@@ -389,7 +389,7 @@ impl From<ActionCreate> for V1CreateActionRequest {
     }
 }
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 impl From<ActionUpdate> for ManagementServiceUpdateActionBody {
     fn from(a: ActionUpdate) -> Self {
         Self::new(a.name, a.script)
@@ -398,7 +398,7 @@ impl From<ActionUpdate> for ManagementServiceUpdateActionBody {
     }
 }
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 fn from_flow_response(a: V1GetFlowResponse) -> Result<Vec<GetTriggersResFlowAction>, String> {
     let flow = a.flow().ok_or("flow")?;
     flow.trigger_actions().map_or_else(
@@ -435,14 +435,14 @@ fn from_flow_response(a: V1GetFlowResponse) -> Result<Vec<GetTriggersResFlowActi
     )
 }
 
-#[cfg(feature = "zitadel-rust-client")]
+#[cfg(feature = "famedly-zitadel-rust-client")]
 use {
-    futures::stream::TryStreamExt, zitadel_rust_client::v2::actions::*,
-    zitadel_rust_client::v2::pagination::PaginationParams,
+    famedly_zitadel_rust_client::v2::actions::*,
+    famedly_zitadel_rust_client::v2::pagination::PaginationParams, futures::stream::TryStreamExt,
 };
 
-#[cfg(feature = "zitadel-rust-client")]
-impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
+#[cfg(feature = "famedly-zitadel-rust-client")]
+impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
     #[instrument(skip_all, fields(name = req_.name))]
     async fn create_target(&self, req_: CreateTarget) -> Result<TargetCreated, Self::Err> {
         let mut req = V2betaCreateTargetRequest::new()
@@ -591,7 +591,7 @@ impl ZitadelHandleV2 for zitadel_rust_client::v2::Zitadel {
     #[instrument(skip_all)]
     async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err> {
         Ok(self
-            .list_executions(&None, &None)
+            .list_executions(&None, &None, &None)
             .and_then(async |execution| {
                 let condition = execution.condition().context("Execution is missing condition")?;
                 let condition = if let Some(request) = condition.request() {

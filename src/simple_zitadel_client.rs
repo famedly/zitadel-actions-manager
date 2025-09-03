@@ -8,7 +8,7 @@ const HEADER_ZITADEL_ORGANIZATION_ID: &str = "x-zitadel-orgid";
 
 /// Simple client that requires access token. This client does not do oauth and
 /// token renewal. Used by the cli tool.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SimpleZitadelClient {
     client: reqwest::Client,
     url: BaseUrl,
@@ -44,6 +44,63 @@ impl SimpleZitadelClient {
                 .build()?,
             url,
         })
+    }
+    #[doc(hidden)]
+    /// Create an organization. Used in tests.
+    pub async fn create_org(&self, org_name: &str) -> anyhow::Result<String> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Response {
+            organization_id: String,
+        }
+
+        Ok(self
+            .client
+            .post(self.url.join("v2/organizations").map_err(E::from)?)
+            .json(&serde_json::json!({ "name": org_name }))
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?
+            .json::<Response>()
+            .await
+            .map_err(E::from)?
+            .organization_id)
+    }
+    #[doc(hidden)]
+    /// List targets id. Used in tests.
+    pub async fn list_targets_id(&self) -> anyhow::Result<Vec<String>> {
+        #[derive(Deserialize)]
+        struct Response {
+            #[serde(default)]
+            targets: Vec<Target>,
+        }
+        #[derive(Deserialize)]
+        struct Target {
+            id: String,
+        }
+        Ok(self
+            .client
+            .post(self.url.join("v2beta/actions/targets/search").map_err(E::from)?)
+            .json(&serde_json::json!({
+                "pagination": { "limit": 1000 },
+                "filters": []
+            }))
+            .send()
+            .await
+            .map_err(E::from)?
+            .error_for_status_with_body()
+            .await
+            .map_err(E::from)?
+            .json::<Response>()
+            .await
+            .map_err(E::from)?
+            .targets
+            .into_iter()
+            .map(|target| target.id)
+            .collect())
     }
 }
 
@@ -366,7 +423,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
     async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err> {
         #[derive(Deserialize)]
         struct Response {
-            result: Option<Vec<Execution>>,
+            executions: Option<Vec<Execution>>,
         }
         Ok(self
             .client
@@ -381,7 +438,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
             .json::<Response>()
             .await
             .map_err(E::from)?
-            .result
+            .executions
             .unwrap_or_default())
     }
 }

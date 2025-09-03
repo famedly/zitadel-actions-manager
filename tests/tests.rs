@@ -8,5 +8,4 @@
     clippy::unwrap_used
 )]
 
-#[test]
-fn no_test() {}
+mod e2e;

@@ -159,27 +159,3 @@ pub fn load(
     let executions = from_yaml_file(&executions_fname)?;
     Ok((targets, executions))
 }
-
-#[cfg(test)]
-mod test {
-    #[allow(unused_imports)]
-    use super::*;
-
-    #[cfg(feature = "zitadel-rust-client")]
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_e2e_v2_zrc_sync() {
-        use std::path::Path;
-        let (targets, executions) = load(Path::new("example-actions"), None, None).unwrap();
-        let zitadel = zitadel_rust_client::v2::Zitadel::new(
-            url_macro::url!("http://localhost:9310"),
-            "docker/zitadel/service-account.json".into(),
-            None,
-        )
-        .await
-        .unwrap();
-        sync(&zitadel, targets.clone(), executions.clone()).await.unwrap();
-        tracing::info!("One sync successful, what about next one");
-        sync(&zitadel, targets, executions).await.unwrap();
-    }
-}
