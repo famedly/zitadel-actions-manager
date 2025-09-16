@@ -27,7 +27,8 @@ pub mod zitadel;
 #[serde(deny_unknown_fields)]
 pub struct Action<Script> {
     pub timeout: Option<String>,
-    pub allowed_to_fail: Option<bool>,
+    #[serde(default)]
+    pub allowed_to_fail: bool,
     pub script: Script,
 }
 
@@ -268,7 +269,7 @@ pub fn load_actions(
         } else {
             let loaded_action = Some(Action {
                 timeout: None,
-                allowed_to_fail: None,
+                allowed_to_fail: false,
                 script: load_script(action_name)?,
             });
             actions.insert(action_name.to_owned(), loaded_action);

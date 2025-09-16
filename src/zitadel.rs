@@ -56,7 +56,8 @@ pub struct ActionSearch {
     pub id: String,
     pub name: String,
     pub timeout: Option<String>,
-    pub allowed_to_fail: Option<bool>,
+    #[serde(default)]
+    pub allowed_to_fail: bool,
     pub script: String,
 }
 
@@ -66,8 +67,8 @@ pub struct ActionCreate {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_to_fail: Option<bool>,
+    #[serde(default)]
+    pub allowed_to_fail: bool,
     pub script: String,
 }
 
@@ -89,8 +90,8 @@ pub struct ActionUpdate {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_to_fail: Option<bool>,
+    #[serde(default)]
+    pub allowed_to_fail: bool,
     pub script: String,
 }
 
@@ -181,8 +182,14 @@ pub struct UpdateTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TargetType {
-    restWebhook { interrupt_on_error: Option<bool> },
-    restCall { interrupt_on_error: Option<bool> },
+    restWebhook {
+        #[serde(default)]
+        interrupt_on_error: bool,
+    },
+    restCall {
+        #[serde(default)]
+        interrupt_on_error: bool,
+    },
     restAsync {},
 }
 
@@ -374,7 +381,7 @@ impl TryFrom<V1Action> for ActionSearch {
             id: a.id().ok_or("id")?.into(),
             name: a.name().ok_or("name")?.into(),
             timeout: a.timeout().cloned(),
-            allowed_to_fail: a.allowed_to_fail().copied(),
+            allowed_to_fail: a.allowed_to_fail().copied().unwrap_or_default(),
             script: a.script().ok_or("script")?.into(),
         })
     }
@@ -385,7 +392,7 @@ impl From<ActionCreate> for V1CreateActionRequest {
     fn from(a: ActionCreate) -> Self {
         Self::new(a.name, a.script)
             .chain_opt(a.timeout, Self::with_timeout)
-            .chain_opt(a.allowed_to_fail, Self::with_allowed_to_fail)
+            .with_allowed_to_fail(a.allowed_to_fail)
     }
 }
 
@@ -394,7 +401,7 @@ impl From<ActionUpdate> for ManagementServiceUpdateActionBody {
     fn from(a: ActionUpdate) -> Self {
         Self::new(a.name, a.script)
             .chain_opt(a.timeout, Self::with_timeout)
-            .chain_opt(a.allowed_to_fail, Self::with_allowed_to_fail)
+            .with_allowed_to_fail(a.allowed_to_fail)
     }
 }
 
@@ -451,13 +458,14 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
             .with_endpoint(req_.endpoint);
         match req_.target_type {
             TargetType::restWebhook { interrupt_on_error } => req.set_rest_webhook(
-                V2betaRestWebhook::new()
-                    .chain_opt(interrupt_on_error, V2betaRestWebhook::with_interrupt_on_error),
+                V2betaRestWebhook::new().with_interrupt_on_error(interrupt_on_error),
             ),
-            TargetType::restCall { interrupt_on_error } => req.set_rest_call(
-                V2betaRestCall::new()
-                    .chain_opt(interrupt_on_error, V2betaRestCall::with_interrupt_on_error),
-            ),
+            TargetType::restCall { interrupt_on_error } => {
+                req.set_rest_call(
+                    V2betaRestCall::new().with_interrupt_on_error(interrupt_on_error),
+                );
+            }
+
             TargetType::restAsync {} => req.set_rest_async(V2betaRestAsync::new()),
         }
 
@@ -484,13 +492,13 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
             .chain_opt(req_.expiration_signing_key, Req::with_expiration_signing_key);
         match req_.target_type {
             Some(TargetType::restWebhook { interrupt_on_error }) => req.set_rest_webhook(
-                V2betaRestWebhook::new()
-                    .chain_opt(interrupt_on_error, V2betaRestWebhook::with_interrupt_on_error),
+                V2betaRestWebhook::new().with_interrupt_on_error(interrupt_on_error),
             ),
-            Some(TargetType::restCall { interrupt_on_error }) => req.set_rest_call(
-                V2betaRestCall::new()
-                    .chain_opt(interrupt_on_error, V2betaRestCall::with_interrupt_on_error),
-            ),
+            Some(TargetType::restCall { interrupt_on_error }) => {
+                req.set_rest_call(
+                    V2betaRestCall::new().with_interrupt_on_error(interrupt_on_error),
+                );
+            }
             Some(TargetType::restAsync {}) => req.set_rest_async(V2betaRestAsync::new()),
             None => {}
         }
@@ -529,9 +537,13 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
         };
 
         let target_type = if let Some(x) = target.rest_webhook() {
-            TargetType::restWebhook { interrupt_on_error: x.interrupt_on_error().copied() }
+            TargetType::restWebhook {
+                interrupt_on_error: x.interrupt_on_error().copied().unwrap_or_default(),
+            }
         } else if let Some(x) = target.rest_call() {
-            TargetType::restCall { interrupt_on_error: x.interrupt_on_error().copied() }
+            TargetType::restCall {
+                interrupt_on_error: x.interrupt_on_error().copied().unwrap_or_default(),
+            }
         } else if target.rest_async().is_some() {
             TargetType::restAsync {}
         } else {

@@ -428,7 +428,9 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
         Ok(self
             .client
             .post(self.url.join("v2beta/actions/executions/search").map_err(E::from)?)
-            .query(&[("pagination.limit", "1000")])
+            .json(&serde_json::json!({
+                "pagination": { "limit": 1000 }
+            }))
             .send()
             .await
             .map_err(E::from)?

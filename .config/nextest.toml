@@ -8,7 +8,7 @@ path = "junit.xml"
 store-success-output = true
 store-failure-output = true
 
-[script.start-e2e-env]
+[scripts.setup.start-e2e-env]
 command = "./.config/starte2e.sh"
 
 [[profile.default.scripts]]

@@ -5,11 +5,16 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+#[cfg(feature = "simple-client")]
+use famedly_zitadel_rust_client::v2::authentication::Token;
 #[cfg(feature = "famedly-zitadel-rust-client")]
-use famedly_zitadel_rust_client::v2::{
-    authentication::Token, organization::V2AddOrganizationRequest, Zitadel,
-};
+use famedly_zitadel_rust_client::v2::{organization::V2AddOrganizationRequest, Zitadel};
+use serde_json::json;
 use url::Url;
+use wiremock::{
+    matchers::{method, path},
+    Mock, MockServer, ResponseTemplate,
+};
 #[cfg(feature = "simple-client")]
 use zitadel_actions_manager::simple_zitadel_client::SimpleZitadelClient;
 use zitadel_actions_manager::zitadel::{ZitadelHandle, ZitadelHandleV2};
@@ -92,12 +97,16 @@ impl TestZitadelHandle for Zitadel {
 }
 
 async fn create_context<T: TestZitadelHandle + ZitadelHandle + ZitadelHandleV2 + Clone>(
+    zitadel_url: Option<&Url>,
     clean_v2_actions: bool,
 ) -> TestContext<T> {
     let path = tempfile::tempdir().expect("Failed to create temp dir");
 
-    let zitadel_handle =
-        T::new(ZITADEL_URL.clone(), Path::new(ZITADEL_SERVICE_USER_PATH).to_path_buf()).await;
+    let zitadel_handle = T::new(
+        zitadel_url.unwrap_or(&ZITADEL_URL).clone(),
+        Path::new(ZITADEL_SERVICE_USER_PATH).to_path_buf(),
+    )
+    .await;
     let org_id = zitadel_handle.create_org().await.expect("Error creating organization");
 
     if clean_v2_actions {
@@ -123,4 +132,31 @@ async fn clean_up_v2_actions<T: TestZitadelHandle + ZitadelHandleV2>(zitadel: &T
     for target_id in targets_id {
         zitadel.delete_target(&target_id).await.expect("Error deleting target");
     }
+}
+
+pub async fn get_zitadel_mock() -> MockServer {
+    // Start a background HTTP server on a random local port
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/oauth/v2/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "test",
+            "token_type": "Bearer",
+            "expires_in": 3600
+        })))
+        // Mounting the mock on the mock server - it's now effective!
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v2/organizations"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "organizationId": "test_org_id",
+        })))
+        // Mounting the mock on the mock server - it's now effective!
+        .mount(&mock_server)
+        .await;
+
+    mock_server
 }

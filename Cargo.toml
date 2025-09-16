@@ -19,6 +19,7 @@ tracing-error = "0.2.1"
 trait-variant = "0.1.2"
 url = "2.5.4"
 proc_macro_aliases = { path = "./proc_macro_aliases" }
+anyhow = { version = "1.0.95" }
 
 # For the CLI tool:
 clap = { version = "4.5.24", features = [
@@ -41,7 +42,6 @@ tracing-subscriber = { version = "0.3.19", features = [
 ], optional = true }
 
 # For zitadel-rust-client:
-anyhow = { version = "1.0.95", optional = true }
 futures = { version = "0.3.31", optional = true }
 famedly-zitadel-rust-client = { version = "0.9", optional = true }
 
@@ -54,11 +54,7 @@ simple-client = [
     "serde_json",
     "time",
 ]
-famedly-zitadel-rust-client = [
-    "anyhow",
-    "dep:famedly-zitadel-rust-client",
-    "futures",
-]
+famedly-zitadel-rust-client = ["dep:famedly-zitadel-rust-client", "futures"]
 
 [[bin]]
 name = "zitadel-actions-sync"
@@ -73,6 +69,9 @@ tokio = { version = "1.44.2", features = ["macros", "rt", "rt-multi-thread"] }
 tempfile = "3.21.0"
 getrandom = "0.3.3"
 test-case = "3"
+wiremock = "0.6.5"
+famedly-zitadel-rust-client = "0.9"
+serde_yaml = "0.9.34"
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = [
