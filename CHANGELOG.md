@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2025-09-19
+
+### Features
+
+- Update actions endpoint to work with zitadel v4
+
+### Bug Fixes
+
+- Fix deleting v1 actions and scripts double loading
+
+### Refactor
+
+- Set all spans to info instead of error
+
+### Testing
+
+- Add tests to v1 and v2
+- Add resync once test case
+
+### Miscellaneous Tasks
+
+- Switch from Nexus to Harbor
+
 ## [0.3.3] - 2025-07-31
 
 ### Miscellaneous Tasks
