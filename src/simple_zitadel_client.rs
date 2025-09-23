@@ -7,8 +7,9 @@
 
 use famedly_rust_utils::{reqwest::*, BaseUrl, GenericCombinators};
 use serde::{Deserialize, Serialize};
+use snafu::{ResultExt, Snafu};
 
-use crate::{instrument, zitadel::*};
+use crate::{instrument, zitadel::*, SpanTraceWrapper};
 
 /// Header for Zitadel organization ID
 const HEADER_ZITADEL_ORGANIZATION_ID: &str = "x-zitadel-orgid";
@@ -23,12 +24,31 @@ pub struct SimpleZitadelClient {
 
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub), context(suffix(false)))]
 pub enum SimpleZitadelClientCreationError {
-    #[error("http request failed: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("{0}")]
-    HeaderParsing(#[from] reqwest::header::InvalidHeaderValue),
+    #[snafu(display("http request failed"))]
+    Reqwest {
+        source: reqwest::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("header parsing failed"))]
+    HeaderParsing {
+        source: reqwest::header::InvalidHeaderValue,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+}
+
+impl SimpleZitadelClientCreationError {
+    #[must_use]
+    pub fn get_context(&self) -> &SpanTraceWrapper {
+        match self {
+            Self::Reqwest { context, .. } => context,
+            Self::HeaderParsing { context, .. } => context,
+        }
+    }
 }
 
 impl SimpleZitadelClient {
@@ -42,22 +62,23 @@ impl SimpleZitadelClient {
                 .timeout(std::time::Duration::from_secs(1))
                 .default_headers({
                     let mut headers = HeaderMap::new();
-                    headers.insert(AUTHORIZATION, format!("Bearer {token}").parse()?);
+                    headers.insert(
+                        AUTHORIZATION,
+                        format!("Bearer {token}").parse().context(HeaderParsing)?,
+                    );
                     if let Some(org_id) = org_id {
-                        headers.insert("x-zitadel-orgid", org_id.parse()?);
+                        headers.insert("x-zitadel-orgid", org_id.parse().context(HeaderParsing)?);
                     }
                     headers
                 })
-                .build()?,
+                .build()
+                .context(Reqwest)?,
             url,
         })
     }
     #[doc(hidden)]
     /// Create an organization. Used in tests.
-    pub async fn create_org(
-        &self,
-        org_name: &str,
-    ) -> Result<String, Traced<SimpleZitadelClientError>> {
+    pub async fn create_org(&self, org_name: &str) -> Result<String, SimpleZitadelClientError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Response {
@@ -66,22 +87,22 @@ impl SimpleZitadelClient {
 
         Ok(self
             .client
-            .post(self.url.join("v2/organizations").map_err(E::from)?)
+            .post(self.url.join("v2/organizations").context(Url)?)
             .json(&serde_json::json!({ "name": org_name }))
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<Response>()
             .await
-            .map_err(E::from)?
+            .context(Serde)?
             .organization_id)
     }
     #[doc(hidden)]
     /// List targets id. Used in tests.
-    pub async fn list_targets_id(&self) -> Result<Vec<String>, Traced<SimpleZitadelClientError>> {
+    pub async fn list_targets_id(&self) -> Result<Vec<String>, SimpleZitadelClientError> {
         #[derive(Deserialize)]
         struct Response {
             #[serde(default)]
@@ -93,20 +114,20 @@ impl SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("v2beta/actions/targets/search").map_err(E::from)?)
+            .post(self.url.join("v2beta/actions/targets/search").context(Url)?)
             .json(&serde_json::json!({
                 "pagination": { "limit": 1000 },
                 "filters": []
             }))
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<Response>()
             .await
-            .map_err(E::from)?
+            .context(Serde)?
             .targets
             .into_iter()
             .map(|target| target.id)
@@ -114,29 +135,56 @@ impl SimpleZitadelClient {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub), context(suffix(false)))]
 pub enum SimpleZitadelClientError {
-    #[error("serde failed: {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("http transport failure: {0}")]
-    ReqwestTransport(#[from] reqwest::Error),
-    #[error("http request failed: {0}")]
-    ReqwestService(#[from] ReqwestErrorWithBody),
-    #[error("url parsing failed: {0}")]
-    Url(#[from] url::ParseError),
-    #[error("jwt error: {0}")]
-    JWT(#[from] jsonwebtoken::errors::Error),
+    #[snafu(display("serde failed"))]
+    Serde {
+        source: reqwest::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("http transport failure"))]
+    ReqwestTransport {
+        source: reqwest::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("http request failed"))]
+    ReqwestService {
+        source: ReqwestErrorWithBody,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("url parsing failed"))]
+    Url {
+        source: url::ParseError,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("jwt error"))]
+    JWT {
+        source: jsonwebtoken::errors::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+}
+
+impl SimpleZitadelClientError {
+    #[must_use]
+    pub fn get_context(&self) -> &SpanTraceWrapper {
+        match self {
+            Self::Serde { context, .. } => context,
+            Self::ReqwestTransport { context, .. } => context,
+            Self::ReqwestService { context, .. } => context,
+            Self::Url { context, .. } => context,
+            Self::JWT { context, .. } => context,
+        }
+    }
 }
 
 #[derive(Serialize)]
 struct EmptyBody {}
-
-use crate::Traced;
-
-crate::impl_traced_from!(SimpleZitadelClientError);
-
-/// Short alias to do `.map_err(E::from)?`
-type E = SimpleZitadelClientError;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct GetTriggersRes {
@@ -153,7 +201,7 @@ struct GetTriggersResFlow {
 }
 
 impl ZitadelInterface for SimpleZitadelClient {
-    type Err = Traced<SimpleZitadelClientError>;
+    type Err = SimpleZitadelClientError;
 }
 
 impl ZitadelHandleCreateOnly for SimpleZitadelClient {
@@ -169,18 +217,18 @@ impl ZitadelHandleCreateOnly for SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("management/v1/actions").map_err(E::from)?)
+            .post(self.url.join("management/v1/actions").context(Url)?)
             .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&action)
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<Response>()
             .await
-            .map_err(E::from)?
+            .context(Serde)?
             .id)
     }
 
@@ -196,16 +244,16 @@ impl ZitadelHandleCreateOnly for SimpleZitadelClient {
             .post(
                 self.url
                     .join(&format!("management/v1/flows/{flow_type}/trigger/{trigger_type}"))
-                    .map_err(E::from)?,
+                    .context(Url)?,
             )
             .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&serde_json::json!({"actionIds": action_ids}))
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?;
+            .context(ReqwestService)?;
         Ok(())
     }
 }
@@ -223,7 +271,7 @@ impl ZitadelHandle for SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("management/v1/actions/_search").map_err(E::from)?)
+            .post(self.url.join("management/v1/actions/_search").context(Url)?)
             .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&serde_json::json!({
               "query": { "limit": 1 },
@@ -238,13 +286,13 @@ impl ZitadelHandle for SimpleZitadelClient {
             }))
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<Response>()
             .await
-            .map_err(E::from)?
+            .context(Serde)?
             .result
             .and_then(|mut result| result.pop()))
     }
@@ -257,42 +305,30 @@ impl ZitadelHandle for SimpleZitadelClient {
         org_id: Option<String>,
     ) -> Result<(), Self::Err> {
         self.client
-            .put(
-                self.url
-                    .join("management/v1/actions/")
-                    .map_err(E::from)?
-                    .join(id)
-                    .map_err(E::from)?,
-            )
+            .put(self.url.join("management/v1/actions/").and_then(|u| u.join(id)).context(Url)?)
             .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&action)
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?;
+            .context(ReqwestService)?;
         Ok(())
     }
 
     #[instrument(skip(self))]
     async fn delete_action(&self, id: &str, org_id: Option<String>) -> Result<(), Self::Err> {
         self.client
-            .delete(
-                self.url
-                    .join("management/v1/actions/")
-                    .map_err(E::from)?
-                    .join(id)
-                    .map_err(E::from)?,
-            )
+            .delete(self.url.join("management/v1/actions/").and_then(|u| u.join(id)).context(Url)?)
             .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .json(&EmptyBody {})
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?;
+            .context(ReqwestService)?;
         Ok(())
     }
 
@@ -307,20 +343,19 @@ impl ZitadelHandle for SimpleZitadelClient {
             .get(
                 self.url
                     .join("management/v1/flows/")
-                    .map_err(E::from)?
-                    .join(flow_type)
-                    .map_err(E::from)?,
+                    .and_then(|u| u.join(flow_type))
+                    .context(Url)?,
             )
             .chain_opt(org_id, |req, org_id| req.header(HEADER_ZITADEL_ORGANIZATION_ID, org_id))
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<GetTriggersRes>()
             .await
-            .map_err(E::from)?
+            .context(Serde)?
             .flow
             .trigger_actions)
     }
@@ -329,19 +364,18 @@ impl ZitadelHandle for SimpleZitadelClient {
 impl ZitadelHandleV2 for SimpleZitadelClient {
     #[instrument(skip(self))]
     async fn create_target(&self, req: CreateTarget) -> Result<TargetCreated, Self::Err> {
-        Ok(self
-            .client
-            .post(self.url.join("v2beta/actions/targets").map_err(E::from)?)
+        self.client
+            .post(self.url.join("v2beta/actions/targets").context(Url)?)
             .json(&req)
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<TargetCreated>()
             .await
-            .map_err(E::from)?)
+            .context(Serde)
     }
 
     #[instrument(skip(self))]
@@ -352,7 +386,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("v2beta/actions/targets/search").map_err(E::from)?)
+            .post(self.url.join("v2beta/actions/targets/search").context(Url)?)
             .json(&serde_json::json!({
                 "pagination": { "limit": 1 },
                 "filters": [{
@@ -364,68 +398,57 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
             }))
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<Response>()
             .await
-            .map_err(E::from)?
+            .context(Serde)?
             .targets
             .and_then(|mut result| result.pop()))
     }
 
     #[instrument(skip(self))]
     async fn update_target(&self, id: &str, req: UpdateTarget) -> Result<TargetUpdated, Self::Err> {
-        Ok(self
-            .client
-            .post(
-                self.url
-                    .join("v2beta/actions/targets/")
-                    .and_then(|u| u.join(id))
-                    .map_err(E::from)?,
-            )
+        self.client
+            .post(self.url.join("v2beta/actions/targets/").and_then(|u| u.join(id)).context(Url)?)
             .json(&req)
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<TargetUpdated>()
             .await
-            .map_err(E::from)?)
+            .context(Serde)
     }
 
     #[instrument(skip(self))]
     async fn delete_target(&self, id: &str) -> Result<(), Self::Err> {
         self.client
-            .delete(
-                self.url
-                    .join("v2beta/actions/targets/")
-                    .and_then(|u| u.join(id))
-                    .map_err(E::from)?,
-            )
+            .delete(self.url.join("v2beta/actions/targets/").and_then(|u| u.join(id)).context(Url)?)
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?;
+            .context(ReqwestService)?;
         Ok(())
     }
 
     #[instrument(skip(self))]
     async fn set_execution(&self, req: Execution) -> Result<(), Self::Err> {
         self.client
-            .put(self.url.join("v2beta/actions/executions").map_err(E::from)?)
+            .put(self.url.join("v2beta/actions/executions").context(Url)?)
             .json(&req)
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?;
+            .context(ReqwestService)?;
         Ok(())
     }
 
@@ -437,19 +460,19 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("v2beta/actions/executions/search").map_err(E::from)?)
+            .post(self.url.join("v2beta/actions/executions/search").context(Url)?)
             .json(&serde_json::json!({
                 "pagination": { "limit": 1000 }
             }))
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<Response>()
             .await
-            .map_err(E::from)?
+            .context(Serde)?
             .executions
             .unwrap_or_default())
     }
@@ -470,7 +493,7 @@ pub async fn auth_with_service_account(
     url: &BaseUrl,
     aud: &str,
     sa: &ServiceAccount,
-) -> Result<String, Traced<SimpleZitadelClientError>> {
+) -> Result<String, SimpleZitadelClientError> {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
     #[derive(Debug, Clone, Deserialize)]
@@ -488,17 +511,17 @@ pub async fn auth_with_service_account(
             "exp": (now + std::time::Duration::from_secs(60)).unix_timestamp(),
             "iat": now.unix_timestamp(),
         }),
-        &EncodingKey::from_rsa_pem(sa.key.as_bytes()).map_err(E::from)?,
+        &EncodingKey::from_rsa_pem(sa.key.as_bytes()).context(JWT)?,
     )
-    .map_err(E::from)?;
+    .context(JWT)?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(1))
         .build()
-        .map_err(E::from)?;
+        .context(ReqwestTransport)?;
 
     Ok(client
-        .post(url.join("oauth/v2/token").map_err(E::from)?)
+        .post(url.join("oauth/v2/token").context(Url)?)
         .form(&[
             ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
             ("scope", "openid urn:zitadel:iam:org:project:id:zitadel:aud"),
@@ -506,13 +529,13 @@ pub async fn auth_with_service_account(
         ])
         .send()
         .await
-        .map_err(E::from)?
+        .context(ReqwestTransport)?
         .error_for_status_with_body()
         .await
-        .map_err(E::from)?
+        .context(ReqwestService)?
         .json::<Response>()
         .await
-        .map_err(E::from)?
+        .context(Serde)?
         .access_token)
 }
 
@@ -522,27 +545,27 @@ impl SimpleZitadelClient {
         &self,
         offset: u64,
         limit: u64,
-    ) -> Result<Option<Vec<String>>, Traced<SimpleZitadelClientError>> {
+    ) -> Result<Option<Vec<String>>, SimpleZitadelClientError> {
         #[derive(Deserialize)]
         struct Response {
             result: Option<Vec<Id>>,
         }
         Ok(self
             .client
-            .post(self.url.join("/v2/organizations/_search").map_err(E::from)?)
+            .post(self.url.join("/v2/organizations/_search").context(Url)?)
             .json(&serde_json::json!({"query": {
               "offset": offset,
               "limit": limit,
             }}))
             .send()
             .await
-            .map_err(E::from)?
+            .context(ReqwestTransport)?
             .error_for_status_with_body()
             .await
-            .map_err(E::from)?
+            .context(ReqwestService)?
             .json::<Response>()
             .await
-            .map_err(E::from)?
+            .context(Serde)?
             .result
             .map(|result| result.into_iter().map(|id| id.id).collect()))
     }

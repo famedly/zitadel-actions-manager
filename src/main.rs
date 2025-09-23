@@ -8,18 +8,31 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::Parser;
 use famedly_rust_utils::{BaseUrl, LevelFilter};
+use snafu::{OptionExt as _, Snafu};
 use tracing::info;
 use zitadel_actions_manager::{
-    from_yaml_file, load,
-    simple_zitadel_client::{auth_with_service_account, ServiceAccount, SimpleZitadelClient},
+    from_yaml_file, instrument, load,
+    simple_zitadel_client::{
+        auth_with_service_account, ServiceAccount, SimpleZitadelClient,
+        SimpleZitadelClientCreationError, SimpleZitadelClientError,
+    },
     sync,
     v2::{self, DEFAULT_EXECUTIONS_FILE, DEFAULT_TARGETS_FILE},
-    Actions, Flows, LoadedScript, Traced, DEFAULT_ACTIONS_FILE, DEFAULT_FLOWS_FILE,
+    Actions, Flows, LoadActionsV1Error, LoadedScript, ReadYamlFileError, SpanTraceWrapper,
+    DEFAULT_ACTIONS_FILE, DEFAULT_FLOWS_FILE,
 };
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), ", git rev ", env!("VERGEN_GIT_SHA"));
 
-type BoxedErr = Box<dyn std::error::Error>;
+#[derive(Debug, Snafu)]
+#[snafu(whatever, display("{message}"))]
+struct CliError {
+    message: String,
+    #[snafu(source(from(Box<dyn std::error::Error>, Some)))]
+    source: Option<Box<dyn std::error::Error>>,
+    #[snafu(implicit)]
+    context: SpanTraceWrapper,
+}
 
 #[derive(Parser, Debug)]
 #[command(about, version = VERSION)]
@@ -95,10 +108,11 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
+#[instrument(skip_all)]
+async fn run(args: Args) -> Result<(), CliError> {
     (args.v1 || args.v2)
         .then_some(())
-        .ok_or_else(|| boxed_text_err("Either --v1 or --v2 should be specified"))?;
+        .whatever_context::<_, CliError>("Either --v1 or --v2 should be specified")?;
 
     let actions_and_flows = args
         .v1
@@ -106,8 +120,7 @@ async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
             info!("Loading all v1 actions and flows...");
             load(args.dir.as_ref(), Some(args.actions.as_ref()), Some(args.flows.as_ref()))
         })
-        .transpose()
-        .map_err(BoxedErr::from)?;
+        .transpose()?;
 
     let targets_and_executions = args
         .v2
@@ -115,13 +128,11 @@ async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
             info!("Loading all v2 targets and executions...");
             v2::load(args.dir.as_ref(), Some(args.targets.as_ref()), Some(args.executions.as_ref()))
         })
-        .transpose()
-        .map_err(BoxedErr::from)?;
+        .transpose()?;
 
     let access_token = auth(&args).await?;
 
-    let zitadel = SimpleZitadelClient::new(args.url.clone(), &access_token, args.org_id.clone())
-        .map_err(|e| Traced::new(BoxedErr::from(e)))?;
+    let zitadel = SimpleZitadelClient::new(args.url.clone(), &access_token, args.org_id.clone())?;
 
     if let Some((loaded_actions, flows)) = actions_and_flows {
         info!("Performing v1 actions sync...");
@@ -130,61 +141,50 @@ async fn run(args: Args) -> Result<(), Traced<BoxedErr>> {
 
     if let Some((targets, executions)) = targets_and_executions {
         info!("Performing v2 actions sync...");
-        v2::sync(&zitadel, targets, executions).await.map_err(Traced::map_from)?;
+        v2::sync(&zitadel, targets, executions).await?;
     }
 
     Ok(())
 }
 
+#[instrument(skip_all)]
 async fn sync_v1(
     args: &Args,
     zitadel: &SimpleZitadelClient,
     actions: Actions<LoadedScript>,
     flows: Flows,
-) -> Result<(), Traced<BoxedErr>> {
+) -> Result<(), CliError> {
     if args.all_orgs {
         const PAGE_SIZE: u64 = 100;
         let mut page = 0;
         // TODO: refactor to `while let` if error type becomes `Send`
         loop {
-            let Some(org_ids) = zitadel
-                .get_all_orgs(page * PAGE_SIZE, PAGE_SIZE)
-                .await
-                .map_err(Traced::map_from)?
-            else {
+            let Some(org_ids) = zitadel.get_all_orgs(page * PAGE_SIZE, PAGE_SIZE).await? else {
                 break;
             };
 
             for org_id in org_ids {
-                sync(Some(org_id), zitadel, actions.clone(), flows.clone())
-                    .await
-                    .map_err(Traced::map_from)?;
+                sync(Some(org_id), zitadel, actions.clone(), flows.clone()).await?;
             }
             page += 1;
         }
     } else {
-        sync(args.org_id.clone(), zitadel, actions, flows).await.map_err(Traced::map_from)?;
+        sync(args.org_id.clone(), zitadel, actions, flows).await?;
     }
     Ok(())
 }
 
-async fn auth(args: &Args) -> Result<String, Traced<BoxedErr>> {
+#[instrument(skip_all)]
+async fn auth(args: &Args) -> Result<String, CliError> {
     if let Some(svc_acc_file) = &args.service_account {
-        let aud = args.aud.as_ref().ok_or_else(|| {
-            boxed_text_err("--aud must be specified along with --service-account")
-        })?;
-        let service_account: ServiceAccount =
-            from_yaml_file(svc_acc_file).map_err(BoxedErr::from)?;
-        auth_with_service_account(&args.url, aud, &service_account).await.map_err(Traced::map_from)
+        let aud = args.aud.as_ref().whatever_context::<_, CliError>(
+            "--aud must be specified along with --service-account",
+        )?;
+        let service_account: ServiceAccount = from_yaml_file(svc_acc_file)?;
+        Ok(auth_with_service_account(&args.url, aud, &service_account).await?)
     } else {
-        args.token
-            .clone()
-            .ok_or_else(|| boxed_text_err("Either --token or --service-account must be specified"))
+        args.token.clone().whatever_context("Either --token or --service-account must be specified")
     }
-}
-
-fn boxed_text_err(e: &str) -> Traced<BoxedErr> {
-    Traced::new(BoxedErr::from(std::io::Error::other(e)))
 }
 
 #[allow(clippy::print_stdout, clippy::expect_used)]
@@ -219,11 +219,51 @@ pub fn init_tracing(
         .expect("Failed to initialize tracing subscriber");
 }
 
+impl From<LoadActionsV1Error> for CliError {
+    fn from(error: LoadActionsV1Error) -> Self {
+        CliError {
+            message: error.to_string(),
+            context: error.get_context().clone(),
+            source: Some(Box::new(error)),
+        }
+    }
+}
+
+impl From<ReadYamlFileError> for CliError {
+    fn from(error: ReadYamlFileError) -> Self {
+        CliError {
+            message: error.to_string(),
+            context: error.get_context().clone(),
+            source: Some(Box::new(error)),
+        }
+    }
+}
+
+impl From<SimpleZitadelClientCreationError> for CliError {
+    fn from(error: SimpleZitadelClientCreationError) -> Self {
+        CliError {
+            message: error.to_string(),
+            context: error.get_context().clone(),
+            source: Some(Box::new(error)),
+        }
+    }
+}
+
+impl From<SimpleZitadelClientError> for CliError {
+    fn from(error: SimpleZitadelClientError) -> Self {
+        CliError {
+            message: error.to_string(),
+            context: error.get_context().clone(),
+            source: Some(Box::new(error)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     #[tokio::test]
-    async fn test_e2e_binary_v1() -> Result<(), Traced<BoxedErr>> {
+    async fn test_e2e_binary_v1() -> Result<(), CliError> {
         init_tracing(&tracing_subscriber::filter::LevelFilter::TRACE, None);
         run(Args::parse_from([
             "binname",
@@ -238,7 +278,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_e2e_binary_v2() -> Result<(), Traced<BoxedErr>> {
+    async fn test_e2e_binary_v2() -> Result<(), CliError> {
         init_tracing(&tracing_subscriber::filter::LevelFilter::TRACE, None);
         run(Args::parse_from([
             "binname",

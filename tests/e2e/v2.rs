@@ -4,11 +4,11 @@
 
 use std::{any, collections::HashMap, marker::PhantomData};
 
-use anyhow::{Context, Result};
 use famedly_zitadel_rust_client::v2::actions::V2betaListExecutionsRequest;
 #[cfg(feature = "famedly-zitadel-rust-client")]
 use famedly_zitadel_rust_client::v2::Zitadel;
 use serde_json::json;
+use snafu::{OptionExt as _, ResultExt as _};
 use test_case::test_case;
 use tokio::fs;
 use tracing_test::traced_test;
@@ -21,7 +21,7 @@ use wiremock::{
 use zitadel_actions_manager::simple_zitadel_client::SimpleZitadelClient;
 use zitadel_actions_manager::v2;
 
-use super::{assert_context_msg, create_context, TestContext, TestZitadelHandle};
+use super::{assert_context_msg, create_context, Result, TestContext, TestZitadelHandle};
 use crate::e2e::get_zitadel_mock;
 
 async fn test_v2<T: TestZitadelHandle>(
@@ -32,24 +32,33 @@ async fn test_v2<T: TestZitadelHandle>(
     let context = context.unwrap_or(create_context::<T>(None, true).await);
     let targets_path = context.path.path().join("targets.yaml");
     let executions_path = context.path.path().join("executions.yaml");
-    fs::write(targets_path.clone(), targets_content).await?;
-    fs::write(executions_path.clone(), executions_content).await?;
+    fs::write(targets_path.clone(), targets_content)
+        .await
+        .whatever_context("Error writing targets")?;
+    fs::write(executions_path.clone(), executions_content)
+        .await
+        .whatever_context("Error writing executions")?;
 
     let (targets, executions) = v2::load(
         context.path.path(),
         Some(targets_path.as_path()),
         Some(executions_path.as_path()),
-    )?;
+    )
+    .whatever_context("Error loading targets and executions")?;
 
     v2::sync(&context.zitadel_handle, targets.clone(), executions.clone())
         .await
-        .context("Error syncing the targets")?;
+        .whatever_context("Error syncing the targets")?;
 
     let mut targets_map = HashMap::new();
 
     for (target_name, target) in targets.iter() {
-        let synced_target =
-            context.zitadel_handle.search_target_by_name(target_name).await?.with_context(|| {
+        let synced_target = context
+            .zitadel_handle
+            .search_target_by_name(target_name)
+            .await
+            .whatever_context("Error searching target by name")?
+            .with_whatever_context(|| {
                 format!("{}: Target '{target_name}' not found in zitadel", any::type_name::<T>())
             });
 
@@ -92,7 +101,9 @@ async fn test_v2<T: TestZitadelHandle>(
         .zitadel_handle
         .list_executions()
         .await
-        .with_context(|| format!("{}: Execution not found in zitadel", any::type_name::<T>()))?
+        .with_whatever_context(|_| {
+            format!("{}: Execution not found in zitadel", any::type_name::<T>())
+        })?
         .into_iter()
         .map(|mut execution| {
             execution.targets.iter_mut().for_each(|target| {

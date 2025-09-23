@@ -8,12 +8,12 @@ use std::{
     sync::LazyLock,
 };
 
-use anyhow::{Context, Result};
 #[cfg(feature = "simple-client")]
 use famedly_zitadel_rust_client::v2::authentication::Token;
 #[cfg(feature = "famedly-zitadel-rust-client")]
 use famedly_zitadel_rust_client::v2::{organization::V2AddOrganizationRequest, Zitadel};
 use serde_json::json;
+use snafu::{OptionExt as _, ResultExt as _};
 use url::Url;
 use wiremock::{
     matchers::{method, path},
@@ -25,6 +25,8 @@ use zitadel_actions_manager::zitadel::{ZitadelHandle, ZitadelHandleV2};
 
 mod v1;
 mod v2;
+
+type Result<T, E = snafu::Whatever> = std::result::Result<T, E>;
 
 static ZITADEL_URL: LazyLock<Url> =
     LazyLock::new(|| Url::parse("http://localhost:9310").expect("Error parsing zitadel url"));
@@ -67,10 +69,12 @@ impl TestZitadelHandle for SimpleZitadelClient {
         .expect("Error creating zitadel simple client")
     }
     async fn create_org(&self) -> Result<String> {
-        Ok(self.create_org(&generate_random_string::<10>()).await?)
+        self.create_org(&generate_random_string::<10>())
+            .await
+            .whatever_context("Error creating organization")
     }
     async fn list_targets_id(&self) -> Result<Vec<String>> {
-        Ok(self.list_targets_id().await?)
+        self.list_targets_id().await.whatever_context("Error listing targets")
     }
 }
 
@@ -83,17 +87,22 @@ impl TestZitadelHandle for Zitadel {
         self.create_organization_with_admin(V2AddOrganizationRequest::new(
             generate_random_string::<10>(),
         ))
-        .await?
+        .await
+        .whatever_context("Error creating organization")?
         .organization_id()
         .cloned()
-        .context("Created organization is missing id")
+        .whatever_context("Created organization is missing id")
     }
     async fn list_targets_id(&self) -> Result<Vec<String>> {
         use futures::{StreamExt, TryStreamExt};
+        use snafu::{FromString as _, Whatever};
 
         self.list_targets(&None, &None, &None)
-            .map(|taregt| {
-                taregt.and_then(|target| target.id().cloned().context("Target is missing id"))
+            .map_err(|e| Whatever::with_source(e.into(), "Error listing targets".to_owned()))
+            .map(|target| {
+                target.and_then(|target| {
+                    target.id().cloned().whatever_context("Target is missing id")
+                })
             })
             .try_collect::<Vec<String>>()
             .await

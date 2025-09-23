@@ -47,17 +47,18 @@
 //! from files two structures: [`v2::Targets`] and [`v2::Executions`] and then
 //! run [`v2::sync`] function.
 
-use std::{collections::BTreeMap as Map, fmt, fs::File, io::Error as IoError, path::Path};
+use std::{collections::BTreeMap as Map, fmt, fs::File, path::Path};
 
 use as_variant::as_variant;
 use famedly_rust_utils::GenericCombinators;
 #[cfg(coverage)]
-pub(crate) use proc_macro_aliases::instrument;
+pub use proc_macro_aliases::instrument;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use snafu::{OptionExt, ResultExt, Snafu};
 use tracing::info;
 // https://github.com/tokio-rs/tracing/issues/2082
 #[cfg(not(coverage))]
-pub(crate) use tracing::instrument;
+pub use tracing::instrument;
 
 use crate::zitadel::*;
 
@@ -259,40 +260,25 @@ pub async fn create_only<Z: ZitadelHandleCreateOnly>(
     Ok(())
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ReadYamlFileError {
-    #[error("IO error: {0}")]
-    Io(#[from] IoError),
-    #[error("Parsing yaml error: {0}")]
-    Parsing(#[from] serde_yaml::Error),
-}
-
-/// Loads v1 actions from files.
-///
-/// - `dir` is a directory path to where source actions, flows and script files.
-/// - `actions` is an optional path relative to `dir`, `actions.yaml` by
-///   default.
-/// - `flows` is an optional path relative to `dir`, `flows.yaml` by default.
 #[instrument]
 pub fn load(
     dir: &Path,
     actions: Option<&Path>,
     flows: Option<&Path>,
-) -> Result<(Actions<LoadedScript>, Flows), Traced<ReadYamlFileError>> {
+) -> Result<(Actions<LoadedScript>, Flows), LoadActionsV1Error> {
     let flows_fname = dir.join(flows.unwrap_or(Path::new(DEFAULT_FLOWS_FILE)));
     let actions_fname = dir.join(actions.unwrap_or(Path::new(DEFAULT_ACTIONS_FILE)));
     let flows = from_yaml_file(&flows_fname)?;
 
     let actions = if std::fs::exists(&actions_fname)
-        .map_err(ReadYamlFileError::from)
-        .map_err(Traced::new)?
+        .with_context(|_| FileExistVerification { path: actions_fname.clone() })?
     {
         from_yaml_file(&actions_fname)?
     } else {
         info!("File {actions_fname:?} doesn't exist, reading only actions referenced in {flows_fname:?}");
         Actions::default()
     };
-    let loaded_actions = load_actions(dir, actions, &flows).map_err(Traced::map_from)?;
+    let loaded_actions = load_actions(dir, actions, &flows)?;
 
     Ok((loaded_actions, flows))
 }
@@ -306,27 +292,28 @@ pub fn load_actions(
     dir: &Path,
     actions: Actions<OptionallyLoadedScript>,
     flows: &Flows,
-) -> Result<Actions<LoadedScript>, Traced<IoError>> {
+) -> Result<Actions<LoadedScript>, LoadActionsV1Error> {
     use std::io::Read;
     let load_script = |name: &str| {
         tracing::info_span!("load_script", %name).in_scope(|| {
             let mut script = String::new();
-            File::open(dir.join([name, ".js"].concat()))
-                .map_err(Traced::new)?
+            let full_path = dir.join([name, ".js"].concat());
+            File::open(&full_path)
+                .with_context(|_| OpenFile { path: full_path.clone() })?
                 .read_to_string(&mut script)
-                .map_err(Traced::new)?;
-            Ok::<_, Traced<IoError>>(script)
+                .with_context(|_| ReadFile { path: full_path })?;
+            Ok::<_, LoadActionsV1Error>(script)
         })
     };
     let mut actions: Actions<LoadedScript> = actions
         .into_iter()
         .map(|(name, action)| {
-            Ok::<_, Traced<IoError>>((
+            Ok::<_, LoadActionsV1Error>((
                 name.clone(),
                 action
                     .map(|action| {
                         let script = action.script.map_or_else(|| load_script(&name), Ok)?;
-                        Ok(Action {
+                        Ok::<_, LoadActionsV1Error>(Action {
                             timeout: action.timeout,
                             allowed_to_fail: action.allowed_to_fail,
                             script,
@@ -339,11 +326,7 @@ pub fn load_actions(
 
     for action_name in flows.values().flat_map(|x| x.values().flat_map(|v| v.iter())) {
         if let Some(action) = actions.get(action_name) {
-            action.as_ref().ok_or_else(|| {
-                Traced::new(IoError::other(format!(
-                    "Action `{action_name}` is marked as `null` (deleted) but is used in flows"
-                )))
-            })?;
+            action.as_ref().context(DeletedActionInFlow { action_name: action_name.to_owned() })?;
         } else {
             let loaded_action = Some(Action {
                 timeout: None,
@@ -360,54 +343,111 @@ pub fn load_actions(
 #[instrument]
 pub fn from_yaml_file<T: DeserializeOwned, P: fmt::Debug + AsRef<Path>>(
     path: P,
-) -> Result<T, Traced<ReadYamlFileError>> {
-    serde_yaml::from_reader(File::open(path).map_err(ReadYamlFileError::from).map_err(Traced::new)?)
-        .map_err(ReadYamlFileError::from)
-        .map_err(Traced::new)
+) -> Result<T, ReadYamlFileError> {
+    serde_yaml::from_reader(
+        File::open(&path).context(OpenFile { path: path.as_ref().to_path_buf() })?,
+    )
+    .context(Parsing { path: path.as_ref().to_path_buf() })
 }
 
-// TODO: factor out into `famedly_rust_utils`:
+use tracing_error::SpanTrace;
 
-/// Error wrapper for the errors used in this crate.
-#[derive(Debug, thiserror::Error)]
-pub struct Traced<E> {
-    pub error: E,
-    pub span: tracing_error::SpanTrace,
-}
+#[derive(Debug, Clone)]
+pub struct SpanTraceWrapper(SpanTrace);
 
-impl<E> Traced<E> {
-    pub fn new(error: E) -> Self {
-        Self { error, span: tracing_error::SpanTrace::capture() }
-    }
-
-    pub fn map_from<Y: From<E>>(self) -> Traced<Y> {
-        Traced { error: self.error.into(), span: self.span }
+impl snafu::GenerateImplicitData for SpanTraceWrapper {
+    fn generate() -> Self {
+        Self(SpanTrace::capture())
     }
 }
 
-impl<E: fmt::Display> fmt::Display for Traced<E> {
+impl fmt::Display for SpanTraceWrapper {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.error.fmt(f)?;
-        if self.span.status() == tracing_error::SpanTraceStatus::CAPTURED {
-            write!(f, "\nAt:\n")?;
-            self.span.fmt(f)?;
+        if self.0.status() == tracing_error::SpanTraceStatus::CAPTURED {
+            writeln!(f, "\nAt:")?;
+            self.0.fmt(f)?;
+            writeln!(f)?;
         }
         Ok(())
     }
 }
 
-// until marker traits are stable, (need impls overloading)
-macro_rules! impl_traced_from {
-    ($($t:ty),+) => {
-        $(
-        impl From<$t> for Traced<$t> {
-            fn from(error: $t) -> Self {
-                Self { error, span: tracing_error::SpanTrace::capture() }
-            }
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub), context(suffix(false)))]
+pub enum ReadYamlFileError {
+    #[snafu(display("Parsing yaml error. File: {}", path.to_string_lossy().to_string()))]
+    Parsing {
+        path: std::path::PathBuf,
+        source: serde_yaml::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("Can't verify if the file exists. File: {}", path.to_string_lossy().to_string()))]
+    FileExistVerification {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("Can't read the file. File: {}", path.to_string_lossy().to_string()))]
+    ReadFile {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("Can't open the file. File: {}", path.to_string_lossy().to_string()))]
+    OpenFile {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+}
+
+impl ReadYamlFileError {
+    #[must_use]
+    pub fn get_context(&self) -> &SpanTraceWrapper {
+        match self {
+            Self::Parsing { context, .. } => context,
+            Self::FileExistVerification { context, .. } => context,
+            Self::ReadFile { context, .. } => context,
+            Self::OpenFile { context, .. } => context,
         }
-        )+
     }
 }
-pub(crate) use impl_traced_from;
 
-impl_traced_from!(Box<dyn std::error::Error>);
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub), context(suffix(false)))]
+pub enum LoadActionsV1Error {
+    #[snafu(display(
+        "Action is marked as `null` (deleted) but is used in flows. Action: {action_name}"
+    ))]
+    DeletedActionInFlow {
+        action_name: String,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("Reading yaml file error"))]
+    ReadYamlFileError {
+        source: ReadYamlFileError,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+}
+
+impl From<ReadYamlFileError> for LoadActionsV1Error {
+    fn from(error: ReadYamlFileError) -> Self {
+        Self::ReadYamlFileError { context: error.get_context().clone(), source: error }
+    }
+}
+
+impl LoadActionsV1Error {
+    #[must_use]
+    pub fn get_context(&self) -> &SpanTraceWrapper {
+        match self {
+            Self::ReadYamlFileError { context, .. } => context,
+            Self::DeletedActionInFlow { context, .. } => context,
+        }
+    }
+}

@@ -29,12 +29,12 @@ as_variant = "1.2.0"
 famedly_rust_utils = "0.2.0"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_yaml = "0.9.34"
-thiserror = "2.0.11"
 tracing = "0.1.41"
 tracing-error = "0.2.1"
 trait-variant = "0.1.2"
 url = "2.5.4"
 proc_macro_aliases = { path = "./proc_macro_aliases" }
+snafu = "0.8.6"
 
 # For the CLI tool:
 clap = { version = "4.5.24", features = [

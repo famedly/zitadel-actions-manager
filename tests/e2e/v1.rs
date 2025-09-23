@@ -4,11 +4,11 @@
 
 use std::{any, marker::PhantomData};
 
-use anyhow::{Context, Result};
 #[cfg(feature = "famedly-zitadel-rust-client")]
 use famedly_zitadel_rust_client::v2::Zitadel;
 use serde::Deserialize;
 use serde_json::json;
+use snafu::{OptionExt as _, ResultExt as _};
 use test_case::test_case;
 use tokio::fs;
 use tracing_test::traced_test;
@@ -21,7 +21,7 @@ use wiremock::{
 use zitadel_actions_manager::simple_zitadel_client::SimpleZitadelClient;
 use zitadel_actions_manager::{load, sync};
 
-use super::{assert_context_msg, create_context, TestContext, TestZitadelHandle};
+use super::{assert_context_msg, create_context, Result, TestContext, TestZitadelHandle};
 use crate::e2e::get_zitadel_mock;
 
 async fn test_v1<T: TestZitadelHandle>(
@@ -32,22 +32,28 @@ async fn test_v1<T: TestZitadelHandle>(
     let context = context.unwrap_or(create_context::<T>(None, false).await);
     let actions_path = context.path.path().join("actions.yaml");
     let flows_path = context.path.path().join("flows.yaml");
-    fs::write(actions_path.clone(), actions_content).await?;
-    fs::write(flows_path.clone(), flows_content).await?;
+    fs::write(actions_path.clone(), actions_content)
+        .await
+        .whatever_context("Error writing actions")?;
+    fs::write(flows_path.clone(), flows_content).await.whatever_context("Error writing flows")?;
 
     let (actions, flows) =
-        load(context.path.path(), Some(actions_path.as_path()), Some(flows_path.as_path()))?;
+        load(context.path.path(), Some(actions_path.as_path()), Some(flows_path.as_path()))
+            .whatever_context("Error loading actions and flows")?;
 
     sync(Some(context.org_id.clone()), &context.zitadel_handle, actions.clone(), flows.clone())
         .await
-        .with_context(|| format!("{}: Error syncing the actions", any::type_name::<T>()))?;
+        .with_whatever_context(|_| {
+            format!("{}: Error syncing the actions", any::type_name::<T>())
+        })?;
 
     for (action_name, action) in actions.iter() {
         let synced_action = context
             .zitadel_handle
             .search_actions_by_name(action_name, Some(context.org_id.clone()))
-            .await?
-            .with_context(|| {
+            .await
+            .whatever_context("Error searching actions by name")?
+            .with_whatever_context(|| {
                 format!(
                     "{}: Action '{action_name}' not found in zitadel org {}",
                     any::type_name::<T>(),
@@ -88,14 +94,17 @@ async fn test_v1<T: TestZitadelHandle>(
     }
 
     for (flow_name, flow) in flows.iter() {
-        let synced_flow =
-            context.zitadel_handle.get_triggers(flow_name, Some(context.org_id.clone())).await?;
+        let synced_flow = context
+            .zitadel_handle
+            .get_triggers(flow_name, Some(context.org_id.clone()))
+            .await
+            .whatever_context("Error getting triggers")?;
         for (trigger_type, trigger_actions) in flow.iter() {
             let synced_trigger_actions = synced_flow
                 .iter()
                 .find(|t| &t.trigger_type.id == trigger_type)
                 .map(|t| t.actions.iter().map(|a| a.name.clone()).collect::<Vec<_>>())
-                .with_context(|| {
+                .with_whatever_context(|| {
                     format!(
                         "{}: Trigger '{trigger_type}' not found in zitadel org {}",
                         any::type_name::<T>(),
@@ -294,7 +303,8 @@ async fn test_resync_only_once<T: TestZitadelHandle>(
         4: [action1]
     "#;
 
-    let actions: Actions = serde_yaml::from_str(actions_str)?;
+    let actions: Actions =
+        serde_yaml::from_str(actions_str).whatever_context("Error parsing actions")?;
 
     Mock::given(method("POST"))
         .and(path_regex(r"management/v1/flows/.*/trigger/.*"))

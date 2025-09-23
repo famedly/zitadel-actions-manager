@@ -13,7 +13,7 @@ use tracing::info;
 use crate::{
     from_yaml_file, instrument,
     zitadel::{CreateTarget, Execution, FoundTarget, TargetType, UpdateTarget, ZitadelHandleV2},
-    ReadYamlFileError, Traced,
+    ReadYamlFileError,
 };
 
 #[doc(hidden)]
@@ -189,7 +189,7 @@ pub fn load(
     dir: &Path,
     targets: Option<&Path>,
     executions: Option<&Path>,
-) -> Result<(Targets, Executions), Traced<ReadYamlFileError>> {
+) -> Result<(Targets, Executions), ReadYamlFileError> {
     let targets_fname = dir.join(targets.unwrap_or(Path::new(DEFAULT_TARGETS_FILE)));
     let executions_fname = dir.join(executions.unwrap_or(Path::new(DEFAULT_EXECUTIONS_FILE)));
     let targets = from_yaml_file(&targets_fname)?;

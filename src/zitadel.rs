@@ -9,10 +9,11 @@
 //! public and are the result of a [`trait_variant::make`] quirks.
 
 use serde::{Deserialize, Serialize};
+use snafu::Snafu;
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
 use crate::instrument;
-use crate::{Action, LoadedScript};
+use crate::{Action, LoadedScript, SpanTraceWrapper};
 
 /// Supertrait for all handles defined here.
 pub trait ZitadelInterface {
@@ -276,19 +277,47 @@ impl<'de> Deserialize<'de> for TrueConst {
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
 use {
-    crate::{impl_traced_from, Traced},
-    anyhow::{anyhow, Context},
     famedly_rust_utils::GenericCombinators,
     famedly_zitadel_rust_client::v2::management::*,
     futures::stream::StreamExt,
+    snafu::{GenerateImplicitData, OptionExt as _, ResultExt as _},
 };
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
-impl_traced_from!(anyhow::Error);
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub), context(suffix(false)))]
+pub enum FamedlyZrcError {
+    #[snafu(display("Zitadel rust client error"))]
+    Zrc {
+        source: anyhow::Error,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("Missing field '{field}' in zitadel response"))]
+    MissingField {
+        field: String,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display(
+        "famedly_zitadel_rust_client backend doesn't support non-numeric flow and trigger types"
+    ))]
+    FlowTypeParse {
+        source: std::num::ParseIntError,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+    #[snafu(display("Malformed response from zitadel. Malformed object: {object}"))]
+    MalformedResponse {
+        object: &'static str,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+}
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
 impl ZitadelInterface for famedly_zitadel_rust_client::v2::Zitadel {
-    type Err = Traced<anyhow::Error>;
+    type Err = FamedlyZrcError;
 }
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
@@ -299,12 +328,12 @@ impl ZitadelHandleCreateOnly for famedly_zitadel_rust_client::v2::Zitadel {
         action: ActionCreate,
         org_id: Option<String>,
     ) -> Result<String, Self::Err> {
-        Ok(self
-            .create_action(action.into(), org_id)
-            .await?
+        self.create_action(action.into(), org_id)
+            .await
+            .context(Zrc)?
             .id()
             .cloned()
-            .context("Response missing id field")?)
+            .context(MissingField { field: "id" })
     }
 
     #[instrument(skip(self))]
@@ -315,15 +344,16 @@ impl ZitadelHandleCreateOnly for famedly_zitadel_rust_client::v2::Zitadel {
         action_ids: Vec<String>,
         org_id: Option<String>,
     ) -> Result<(), Self::Err> {
-        let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
-        let trigger_type = trigger_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
+        let flow_type = flow_type.parse::<u32>().context(FlowTypeParse)?;
+        let trigger_type = trigger_type.parse::<u32>().context(FlowTypeParse)?;
         self.set_trigger_actions(
             flow_type,
             trigger_type,
             ManagementServiceSetTriggerActionsBody::new().with_action_ids(action_ids),
             org_id,
         )
-        .await?;
+        .await
+        .context(Zrc)?;
         Ok(())
     }
 }
@@ -337,19 +367,20 @@ impl ZitadelHandle for famedly_zitadel_rust_client::v2::Zitadel {
         org_id: Option<String>,
     ) -> Result<Option<ActionSearch>, Self::Err> {
         // TODO: explicitly set TEXT_QUERY_METHOD_EQUALS
-        Ok(self
-            .list_actions(
-                org_id,
-                None,
-                Some(vec![V1ActionQuery::new()
-                    .with_action_name_query(V1ActionNameQuery::new().with_name(name.into()))]),
-            )?
-            .next()
-            .await
-            .transpose()?
-            .map(TryInto::try_into)
-            .transpose()
-            .map_err(|f| anyhow!("Response missing {f} field"))?)
+
+        self.list_actions(
+            org_id,
+            None,
+            Some(vec![V1ActionQuery::new()
+                .with_action_name_query(V1ActionNameQuery::new().with_name(name.into()))]),
+        )
+        .context(Zrc)?
+        .next()
+        .await
+        .transpose()
+        .context(Zrc)?
+        .map(TryInto::try_into)
+        .transpose()
     }
 
     #[instrument(skip(self))]
@@ -359,13 +390,13 @@ impl ZitadelHandle for famedly_zitadel_rust_client::v2::Zitadel {
         action: ActionUpdate,
         org_id: Option<String>,
     ) -> Result<(), Self::Err> {
-        self.update_action(id.into(), action.into(), org_id).await?;
+        self.update_action(id.into(), action.into(), org_id).await.context(Zrc)?;
         Ok(())
     }
 
     #[instrument(skip(self))]
     async fn delete_action(&self, id: &str, org_id: Option<String>) -> Result<(), Self::Err> {
-        self.delete_action(id.into(), org_id).await?;
+        self.delete_action(id.into(), org_id).await.context(Zrc)?;
         Ok(())
     }
 
@@ -375,26 +406,21 @@ impl ZitadelHandle for famedly_zitadel_rust_client::v2::Zitadel {
         flow_type: &str,
         org_id: Option<String>,
     ) -> Result<Vec<GetTriggersResFlowAction>, Self::Err> {
-        let flow_type = flow_type.parse::<u32>().context(FLOW_TRIGGER_FORMAT_ERR)?;
-        Ok(from_flow_response(self.get_flow(flow_type, org_id).await?)
-            .map_err(|f| anyhow!("Response missing {f} field"))?)
+        let flow_type = flow_type.parse::<u32>().context(FlowTypeParse)?;
+        from_flow_response(self.get_flow(flow_type, org_id).await.context(Zrc)?)
     }
 }
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
-const FLOW_TRIGGER_FORMAT_ERR: &str =
-    "famedly_zitadel_rust_client backend doesn't support non-numeric flow and trigger types";
-
-#[cfg(feature = "famedly-zitadel-rust-client")]
 impl TryFrom<V1Action> for ActionSearch {
-    type Error = &'static str;
+    type Error = FamedlyZrcError;
     fn try_from(a: V1Action) -> Result<ActionSearch, Self::Error> {
         Ok(ActionSearch {
-            id: a.id().ok_or("id")?.into(),
-            name: a.name().ok_or("name")?.into(),
+            id: a.id().context(MissingField { field: "id" })?.into(),
+            name: a.name().context(MissingField { field: "name" })?.into(),
             timeout: a.timeout().cloned(),
             allowed_to_fail: a.allowed_to_fail().copied().unwrap_or_default(),
-            script: a.script().ok_or("script")?.into(),
+            script: a.script().context(MissingField { field: "script" })?.into(),
         })
     }
 }
@@ -418,8 +444,10 @@ impl From<ActionUpdate> for ManagementServiceUpdateActionBody {
 }
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
-fn from_flow_response(a: V1GetFlowResponse) -> Result<Vec<GetTriggersResFlowAction>, String> {
-    let flow = a.flow().ok_or("flow")?;
+fn from_flow_response(
+    a: V1GetFlowResponse,
+) -> Result<Vec<GetTriggersResFlowAction>, FamedlyZrcError> {
+    let flow = a.flow().context(MissingField { field: "flow" })?;
     flow.trigger_actions().map_or_else(
         || Ok(Vec::new()),
         |trigger_actions| {
@@ -430,9 +458,9 @@ fn from_flow_response(a: V1GetFlowResponse) -> Result<Vec<GetTriggersResFlowActi
                         trigger_type: Id {
                             id: trigger_action
                                 .trigger_type()
-                                .ok_or("trigger_type")?
+                                .context(MissingField { field: "trigger_type" })?
                                 .id()
-                                .ok_or("trigger_type.id")?
+                                .context(MissingField { field: "trigger_type.id" })?
                                 .into(),
                         },
                         actions: trigger_action.actions().map_or_else(
@@ -443,13 +471,11 @@ fn from_flow_response(a: V1GetFlowResponse) -> Result<Vec<GetTriggersResFlowActi
                                     .cloned()
                                     .map(TryInto::try_into)
                                     .collect::<Result<Vec<_>, _>>()
-                                    .map_err(|f| ["actions", f].join("."))
                             },
                         )?,
                     })
                 })
-                .collect::<Result<_, String>>()
-                .map_err(|f| ["flow", "trigger_actions", &f].join("."))
+                .collect::<Result<_, FamedlyZrcError>>()
         },
     )
 }
@@ -481,13 +507,13 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
             TargetType::restAsync {} => req.set_rest_async(V2betaRestAsync::new()),
         }
 
-        let res = self.create_target(&req).await?;
+        let res = self.create_target(&req).await.context(Zrc)?;
         Ok(TargetCreated {
-            id: res.id().cloned().context("Created target is missing id")?,
+            id: res.id().cloned().context(MissingField { field: "id" })?,
             signing_key: res
                 .signing_key()
                 .cloned()
-                .context("Created target is missing signing key")?,
+                .context(MissingField { field: "signing_key" })?,
         })
     }
 
@@ -514,18 +540,18 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
             Some(TargetType::restAsync {}) => req.set_rest_async(V2betaRestAsync::new()),
             None => {}
         }
-        let res = self.update_target(id, &req).await?;
+        let res = self.update_target(id, &req).await.context(Zrc)?;
         Ok(TargetUpdated {
             signing_key: res
                 .signing_key()
                 .cloned()
-                .context("Updated target is missing signing key")?,
+                .context(MissingField { field: "signing_key" })?,
         })
     }
 
     #[instrument(skip(self))]
     async fn delete_target(&self, id: &str) -> Result<(), Self::Err> {
-        self.delete_target(id).await?;
+        self.delete_target(id).await.context(Zrc)?;
         Ok(())
     }
 
@@ -542,7 +568,8 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
         ))
         .next()
         .await
-        .transpose()?;
+        .transpose()
+        .context(Zrc)?;
 
         let Some(target) = target else {
             return Ok(None);
@@ -559,19 +586,19 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
         } else if target.rest_async().is_some() {
             TargetType::restAsync {}
         } else {
-            return Err(anyhow!("Found target is malformed").into());
+            return MalformedResponse { object: "Found target" }.fail();
         };
 
         Ok(Some(FoundTarget {
-            id: target.id().cloned().context("Found target is missing id")?,
-            name: target.name().cloned().context("Found target is missing name")?,
+            id: target.id().cloned().context(MissingField { field: "id" })?,
+            name: target.name().cloned().context(MissingField { field: "name" })?,
             target_type,
-            timeout: target.timeout().cloned().context("Found target is missing timeout")?,
-            endpoint: target.endpoint().cloned().context("Found target is missing endpoint")?,
+            timeout: target.timeout().cloned().context(MissingField { field: "timeout" })?,
+            endpoint: target.endpoint().cloned().context(MissingField { field: "endpoint" })?,
             signing_key: target
                 .signing_key()
                 .cloned()
-                .context("Found target is missing signing key")?,
+                .context(MissingField { field: "signing_key" })?,
         }))
     }
 
@@ -608,16 +635,18 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
         self.set_execution(
             &V2betaSetExecutionRequest::new().with_condition(condition).with_targets(req.targets),
         )
-        .await?;
+        .await
+        .context(Zrc)?;
         Ok(())
     }
 
     #[instrument(skip_all)]
     async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err> {
-        Ok(self
-            .list_executions(&None, &None, &None)
+        self.list_executions(&None, &None, &None)
+            .map_err(|e| FamedlyZrcError::Zrc { source: e, context: SpanTraceWrapper::generate() })
             .and_then(async |execution| {
-                let condition = execution.condition().context("Execution is missing condition")?;
+                let condition =
+                    execution.condition().context(MissingField { field: "condition" })?;
                 let condition = if let Some(request) = condition.request() {
                     ExecutionCondition::request(if let Some(method) = request.method() {
                         RequestResponseCondition::method(method.to_owned())
@@ -626,7 +655,7 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
                     } else if let Some(_all) = request.all() {
                         RequestResponseCondition::all(TrueConst)
                     } else {
-                        anyhow::bail!("Execution.condition.request is malformed");
+                        return MalformedResponse { object: "Execution.condition.request" }.fail();
                     })
                 } else if let Some(response) = condition.response() {
                     ExecutionCondition::response(if let Some(method) = response.method() {
@@ -636,14 +665,11 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
                     } else if let Some(_all) = response.all() {
                         RequestResponseCondition::all(TrueConst)
                     } else {
-                        anyhow::bail!("Execution.condition.response is malformed");
+                        return MalformedResponse { object: "Execution.condition.response" }.fail();
                     })
                 } else if let Some(function) = condition.function() {
                     ExecutionCondition::function {
-                        name: function
-                            .name()
-                            .context("Execution.condition.function is missing name")?
-                            .to_owned(),
+                        name: function.name().context(MissingField { field: "name" })?.to_owned(),
                     }
                 } else if let Some(event) = condition.event() {
                     ExecutionCondition::event(if let Some(event) = event.event() {
@@ -653,10 +679,10 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
                     } else if event.all().is_some() {
                         EventCondition::all(TrueConst)
                     } else {
-                        anyhow::bail!("Execution.condition.event is malformed");
+                        return MalformedResponse { object: "Execution.condition.event" }.fail();
                     })
                 } else {
-                    anyhow::bail!("Execution.condition is malformed");
+                    return MalformedResponse { object: "Execution.condition" }.fail();
                 };
                 Ok(Execution {
                     condition,
@@ -664,6 +690,6 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
                 })
             })
             .try_collect()
-            .await?)
+            .await
     }
 }
