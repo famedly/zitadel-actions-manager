@@ -49,7 +49,7 @@ jobs:
 
       - name: Clippy
         shell: bash
-        run: cargo +${NIGHTLY_VERSION} clippy --workspace --all-features --all-targets -- -D warnings
+        run: cargo +${NIGHTLY_VERSION} clippy  --workspace --all-features --all-targets -- -D warnings
 
       - name: Doc-test
         shell: bash
@@ -112,10 +112,7 @@ jobs:
 
   publish:
     needs: [simple-checks, tests]
-    uses: famedly/backend-build-workflows/.github/workflows/publish-crate.yml@v2
-    with:
-      registry-name: "crates-io"
-      registry-index: "https://github.com/rust-lang/crates.io-index"
+    uses: famedly/backend-build-workflows/.github/workflows/publish-crate.yml@v5
     secrets:
-      CI_SSH_PRIVATE_KEY: ${{ secrets.CI_SSH_PRIVATE_KEY }}
-      registry-auth-token: ${{ secrets.CRATES_IO_TOKEN }}
+      CRATE_REGISTRY_SSH_PRIVKEY: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+      CRATE_REGISTRY_AUTH_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}

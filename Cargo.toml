@@ -2,10 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-[workspace]
-members = [".", "./proc_macro_aliases"]
-resolver = "3"
-
 [package]
 name = "zitadel-actions-manager"
 version = "0.4.1"
@@ -33,8 +29,8 @@ tracing = "0.1.41"
 tracing-error = "0.2.1"
 trait-variant = "0.1.2"
 url = "2.5.4"
-proc_macro_aliases = { path = "./proc_macro_aliases" }
 snafu = "0.8.6"
+tracing-instrument-mock = "0.1.0"
 
 # For the CLI tool:
 clap = { version = "4.5.24", features = [
@@ -93,7 +89,7 @@ vergen = { version = "8.2.6", features = [
 ] } # vergen passes metadata like the version and git commit hash to cargo as a compile-time environment variables
 
 [package.metadata.cargo-udeps.ignore]
-normal = ["proc_macro_aliases"]
+normal = ["tracing-instrument-mock"]
 
 [lints.rust]
 dead_code = "warn"

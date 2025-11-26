@@ -1252,16 +1252,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proc_macro_aliases"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
- "tracing-attributes",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1980,6 +1970,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-instrument-mock"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90d37f9ad4f511f0ac4e03e5fde4f90043e89f5050b999559410a52012ee989d"
+
+[[package]]
 name = "tracing-log"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2504,7 +2500,6 @@ dependencies = [
  "futures",
  "getrandom 0.3.3",
  "jsonwebtoken",
- "proc_macro_aliases",
  "reqwest",
  "serde",
  "serde_json",
@@ -2516,6 +2511,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-error",
+ "tracing-instrument-mock",
  "tracing-subscriber",
  "tracing-test",
  "trait-variant",

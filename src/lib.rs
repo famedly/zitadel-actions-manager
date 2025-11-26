@@ -51,14 +51,14 @@ use std::{collections::BTreeMap as Map, fmt, fs::File, path::Path};
 
 use as_variant::as_variant;
 use famedly_rust_utils::GenericCombinators;
-#[cfg(coverage)]
-pub use proc_macro_aliases::instrument;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use snafu::{OptionExt, ResultExt, Snafu};
 use tracing::info;
 // https://github.com/tokio-rs/tracing/issues/2082
 #[cfg(not(coverage))]
 pub use tracing::instrument;
+#[cfg(coverage)]
+pub use tracing_instrument_mock::instrument;
 
 use crate::zitadel::*;
 
