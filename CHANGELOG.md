@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-01-26
+
+### Refactor
+
+- [**breaking**] Replace TracedError by snafu
+- Use tracing-instrument-mock
+
 ## [0.4.1] - 2025-09-22
 
 ### Documentation
