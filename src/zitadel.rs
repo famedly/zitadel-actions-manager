@@ -9,11 +9,12 @@
 //! public and are the result of a [`trait_variant::make`] quirks.
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "famedly-zitadel-rust-client")]
 use snafu::Snafu;
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
-use crate::instrument;
-use crate::{Action, LoadedScript, SpanTraceWrapper};
+use crate::{instrument, SpanTraceWrapper};
+use crate::{Action, LoadedScript};
 
 /// Supertrait for all handles defined here.
 pub trait ZitadelInterface {
