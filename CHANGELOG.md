@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-02-04
+
+### Bug Fixes
+
+- Fix the deps for feature famedly-zitadel-rust-client
+
 ## [0.5.0] - 2026-01-26
 
 ### Refactor
