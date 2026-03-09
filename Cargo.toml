@@ -4,7 +4,7 @@
 
 [package]
 name = "zitadel-actions-manager"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 description = "Sync v1 and v2 Zitadel IdP actions defined in a declarative way"
 default-run = "zitadel-actions-sync"
