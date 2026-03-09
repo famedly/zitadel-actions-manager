@@ -22,8 +22,8 @@ pub trait ZitadelInterface {
 }
 
 /// Zitadel handle necessary for [`crate::create_only`].
-#[trait_variant::make(ZitadelHandleCreateOnly: Send + Sync)]
-pub trait ZitadelHandleCreateOnlyPrototype: ZitadelInterface {
+#[trait_variant::make(ZitadelHandleCreateOnly: Send)]
+pub trait ZitadelHandleCreateOnlyPrototype: ZitadelInterface + Sync {
     async fn create_action(
         &self,
         action: ActionCreate,
@@ -40,7 +40,7 @@ pub trait ZitadelHandleCreateOnlyPrototype: ZitadelInterface {
 }
 
 /// Zitadel handle necessary for [`crate::sync`].
-#[trait_variant::make(ZitadelHandle: Send + Sync)]
+#[trait_variant::make(ZitadelHandle: Send)]
 pub trait ZitadelHandlePrototype: ZitadelHandleCreateOnly + ZitadelInterface {
     async fn search_actions_by_name(
         &self,
@@ -142,8 +142,8 @@ pub struct GetTriggersResFlowAction {
 }
 
 /// Zitadel handle necessary for [`crate::v2::sync`].
-#[trait_variant::make(ZitadelHandleV2: Send + Sync)]
-pub trait ZitadelHandleV2Prototype: ZitadelInterface {
+#[trait_variant::make(ZitadelHandleV2: Send)]
+pub trait ZitadelHandleV2Prototype: ZitadelInterface + Sync {
     async fn create_target(&self, req: CreateTarget) -> Result<TargetCreated, Self::Err>;
     async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err>;
     async fn update_target(&self, id: &str, req: UpdateTarget) -> Result<TargetUpdated, Self::Err>;

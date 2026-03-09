@@ -12,6 +12,8 @@ use std::{
 use famedly_zitadel_rust_client::v2::authentication::Token;
 #[cfg(feature = "famedly-zitadel-rust-client")]
 use famedly_zitadel_rust_client::v2::{organization::V2AddOrganizationRequest, Zitadel};
+#[cfg(feature = "simple-client")]
+use reqwest_middleware::ClientBuilder;
 use serde_json::json;
 use snafu::{OptionExt as _, ResultExt as _};
 use url::Url;
@@ -58,9 +60,15 @@ trait TestZitadelHandle: ZitadelHandle + ZitadelHandleV2 + Clone {
 #[cfg(feature = "simple-client")]
 impl TestZitadelHandle for SimpleZitadelClient {
     async fn new(url: Url, path: PathBuf) -> Self {
-        let token = Token::new(url.clone(), &path, reqwest::Client::new(), None, None)
-            .await
-            .expect("Error creating zitadel token");
+        let token = Token::new(
+            url.clone(),
+            &path,
+            ClientBuilder::new(reqwest::Client::new()).build(),
+            None,
+            None,
+        )
+        .await
+        .expect("Error creating zitadel token");
         SimpleZitadelClient::new(
             url.try_into().expect("Url is not a base url"),
             &token.token().await.expect("Error getting token"),

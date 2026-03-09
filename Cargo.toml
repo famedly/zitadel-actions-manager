@@ -55,7 +55,8 @@ tracing-subscriber = { version = "0.3.19", features = [
 # For famedly-zitadel-rust-client:
 anyhow = { version = "1.0.95", optional = true }
 futures = { version = "0.3.31", optional = true }
-famedly-zitadel-rust-client = { version = "0.9", optional = true }
+famedly-zitadel-rust-client = { version = "0.9.2", optional = true }
+
 
 [features]
 cli = ["clap", "simple-client", "tokio", "tracing-subscriber"]
@@ -84,6 +85,7 @@ wiremock = "0.6.5"
 famedly-zitadel-rust-client = "0.9"
 serde_yaml = "0.9.34"
 anyhow = "1.0.95"
+reqwest-middleware = { version = "0.4.2" }
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = [
