@@ -2478,7 +2478,7 @@ dependencies = [
 
 [[package]]
 name = "zitadel-actions-manager"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "as_variant",
