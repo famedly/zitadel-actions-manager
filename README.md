@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
+SPDX-FileCopyrightText: 2026 Famedly GmbH
 
 SPDX-License-Identifier: Apache-2.0
 -->

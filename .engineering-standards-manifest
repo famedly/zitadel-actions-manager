@@ -1,0 +1,15 @@
+REUSE.toml
+.github/workflows/ci.yml
+.github/workflows/docker-backend.yml
+.github/workflows/fast-forward.yml
+.github/workflows/general-checks.yml
+.github/workflows/publish-crate.yml
+.github/workflows/rust-ci.yml
+.envrc
+.nixd.json
+.editorconfig
+.github/dependabot.yml
+cargo-lints.toml
+clippy.toml
+deny.toml
+rustfmt.toml
