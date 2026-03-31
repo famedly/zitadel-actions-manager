@@ -1,0 +1,64 @@
+[licenses]
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSD-3-Clause-Clear",
+  "BSD-4-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "OpenSSL",
+  "MS-PL",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+]
+unused-allowed-license = "allow"
+confidence-threshold = 0.95
+
+[licenses.private]
+ignore = true
+
+# Famedly crates that use AGPL-3.0-only.
+# Add new entries here when a Famedly crate needs an AGPL exception.
+[[licenses.exceptions]]
+name = "tim-epa-login"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+name = "famedly_rust_utils"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+name = "rust-telemetry"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+name = "tim-forward-proxy"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+name = "tim-reverse-proxy"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+name = "tim-registration-service"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+name = "zitadel-rust-client"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+name = "zitadel-actions-manager"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+name = "zitadel-token"
+allow = ["AGPL-3.0-only", "AGPL-3.0-or-later"]
