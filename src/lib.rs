@@ -12,23 +12,25 @@
 //! ```
 //! # use zitadel_actions_manager::{Action, LoadedScript, Actions, Flows};
 //! let actions: Actions<LoadedScript> = [(
-//!     "action1".to_owned(),
-//!     Some(Action {
-//!         timeout: None,
-//!         allowed_to_fail: false,
-//!         script: "function action1(ctx, api) {}".to_owned(),
-//!     }),
+//! 	"action1".to_owned(),
+//! 	Some(Action {
+//! 		timeout: None,
+//! 		allowed_to_fail: false,
+//! 		script: "function action1(ctx, api) {}".to_owned(),
+//! 	}),
 //! )]
 //! .into();
-//! let flows: Flows = [("2".into(), [("4".into(), vec!["action1".to_owned()])].into())].into();
+//! let flows: Flows =
+//! 	[("2".into(), [("4".into(), vec!["action1".to_owned()])].into())]
+//! 		.into();
 //! ```
 //! or you can [`load`] them from files:
 //! ```
 //! # use std::path::Path;
 //! let (actions, flows) = zitadel_actions_manager::load(
-//!     &Path::new("example-actions"),
-//!     None,
-//!     None,
+//! 	&Path::new("example-actions"),
+//! 	None,
+//! 	None,
 //! )
 //! .unwrap();
 //! ```

@@ -12,12 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	// info and vergen can fail in environments without git (e.g. when used as a
 	// dependency).
 	if std::env::var("CARGO_FEATURE_CLI").is_ok() {
-		vergen::EmitBuilder::builder()
-			.fail_on_error()
-			.all_build()
-			.all_git()
-			.git_sha(false)
-			.emit()?;
+		vergen::EmitBuilder::builder().all_build().all_git().git_sha(false).emit()?;
 	}
 	Ok(())
 }
