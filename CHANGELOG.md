@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.4] - 2026-05-11
+
+### Bump
+
+- Update deps
+
+### Release
+
+- V0.5.4
+
 ## [0.5.3] - 2026-03-12
 
 ### Bug Fixes
@@ -74,7 +84,6 @@ All notable changes to this project will be documented in this file.
 
 - Update zitadel-rust-client version
 
-
 ## [0.3.0] - 2025-06-18
 
 ### Continuous Integration Pipeline
@@ -85,7 +94,6 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] Add v2 actions support
 - [**breaking**] Impl v2 handle for ZRC
-
 
 ## [0.2.0] - 2025-04-10
 
@@ -102,7 +110,6 @@ All notable changes to this project will be documented in this file.
 ### Refactor
 
 - [**breaking**] `ZitadelInterface` for ZRC client instead of `Arc<ZRC client>`
-
 
 ## [0.1.0] - 2025-01-17
 
