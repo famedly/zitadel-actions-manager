@@ -19,6 +19,7 @@ required-features = ["cli"]
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 as_variant = "1.2.0"

@@ -1,9 +1,9 @@
-#![cfg_attr(all(doc, not(doctest)), feature(doc_auto_cfg))]
-#![allow(missing_docs, clippy::missing_docs_in_private_items)]
 // SPDX-FileCopyrightText: 2025 Famedly GmbH (info@famedly.com)
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg_attr(all(docsrs, not(doctest)), feature(doc_cfg))]
+#![allow(missing_docs, clippy::missing_docs_in_private_items)]
 //! Sync v1 and v2 Zitadel IdP actions defined in a declarative way.
 //!
 //! Depending on the scenario, you need to define the actions and triggers. You
