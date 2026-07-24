@@ -31,6 +31,7 @@ tracing-error = "0.2.1"
 trait-variant = "0.1.2"
 url = "2.5.4"
 snafu = "0.8.6"
+strip-ansi-escapes = "0.2.1"
 tracing-instrument-mock = "0.1.0"
 
 # For the CLI tool:

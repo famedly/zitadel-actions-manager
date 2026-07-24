@@ -102,7 +102,10 @@ async fn main() -> ExitCode {
     init_tracing(&args.log_level, None);
     println!("{} {VERSION}", env!("CARGO_PKG_NAME"));
 
-    match run(args).await.inspect_err(|e| tracing::error!("{}", e)) {
+    match run(args)
+        .await
+        .inspect_err(|e| tracing::error!("{}{}", snafu::Report::from_error(&e), e.context))
+    {
         Ok(_) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
     }

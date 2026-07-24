@@ -365,8 +365,8 @@ impl fmt::Display for SpanTraceWrapper {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.0.status() == tracing_error::SpanTraceStatus::CAPTURED {
             writeln!(f, "\nAt:")?;
-            self.0.fmt(f)?;
-            writeln!(f)?;
+            // NOTE: Workaround for https://github.com/tokio-rs/tracing/issues/3476
+            writeln!(f, "{}", strip_ansi_escapes::strip_str(self.0.to_string()))?;
         }
         Ok(())
     }
