@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.5] - 2026-07-24
+
+### Bug Fixes
+
+- Fix error reporting in the CLI tool
+
+### Documentation
+
+- Fix cargo doc
+
+### Miscellaneous Tasks
+
+- Update GitHub Action pins
+- Update GitHub Action pins
+- Relax ZRC version constraints and fix features
+
 ## [0.5.4] - 2026-05-11
 
 ### Bump
