@@ -12,7 +12,7 @@ use std::{
 use famedly_zitadel_rust_client::v2::authentication::Token;
 #[cfg(feature = "famedly-zitadel-rust-client")]
 use famedly_zitadel_rust_client::v2::{organization::V2AddOrganizationRequest, Zitadel};
-#[cfg(feature = "simple-client")]
+#[cfg(any(feature = "simple-client", feature = "famedly-zitadel-rust-client"))]
 use reqwest_middleware::ClientBuilder;
 use serde_json::json;
 use snafu::{OptionExt as _, ResultExt as _};
@@ -89,7 +89,8 @@ impl TestZitadelHandle for SimpleZitadelClient {
 #[cfg(feature = "famedly-zitadel-rust-client")]
 impl TestZitadelHandle for Zitadel {
     async fn new(url: Url, path: PathBuf) -> Self {
-        Zitadel::new(url, path, None).await.expect("Error creating zitadel client")
+        let client = ClientBuilder::new(reqwest::Client::new()).build();
+        Zitadel::new(client, url, path, None).await.expect("Error creating zitadel client")
     }
     async fn create_org(&self) -> Result<String> {
         self.create_organization_with_admin(V2AddOrganizationRequest::new(

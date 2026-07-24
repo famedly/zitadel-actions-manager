@@ -438,9 +438,9 @@ dependencies = [
 
 [[package]]
 name = "famedly-zitadel-rust-client"
-version = "0.12.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "198c1a0708441ba728e40f925b7307990cac6593faf617ced04c4340af21a553"
+checksum = "34dc3f285bf6a61c2ea2db424809a6a0bac4943cd351e7d5ca0a3644de38c7b2"
 dependencies = [
  "anyhow",
  "anyhow_ext",

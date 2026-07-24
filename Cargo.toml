@@ -55,8 +55,7 @@ tracing-subscriber = { version = "0.3.19", features = [
 # For famedly-zitadel-rust-client:
 anyhow = { version = "1.0.95", optional = true }
 futures = { version = "0.3.31", optional = true }
-famedly-zitadel-rust-client = { version = "0.12", optional = true }
-
+famedly-zitadel-rust-client = { version = ">=0.12,<1", optional = true }
 
 [features]
 cli = ["clap", "simple-client", "tokio", "tracing-subscriber"]
@@ -64,6 +63,7 @@ simple-client = [
     "famedly_rust_utils/reqwest",
     "jsonwebtoken",
     "reqwest",
+    "reqwest/form",
     "serde_json",
     "time",
 ]

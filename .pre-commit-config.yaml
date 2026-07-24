@@ -21,6 +21,8 @@ repos:
     hooks:
       - id: fmt
       - id: clippy
+        # Match CI: e2e tests are feature-gated and fail to compile without this.
+        args: ["--workspace", "--all-features", "--all-targets", "--", "-D", "warnings"]
   - repo: https://github.com/crate-ci/typos
     rev: dictgen-v0.3.1
     hooks:
