@@ -112,7 +112,10 @@ jobs:
 
   publish:
     needs: [simple-checks, tests]
-    uses: famedly/backend-build-workflows/.github/workflows/publish-crate.yml@fcc2ec82a725d5c4c9c6a8f19e8df101c178dcb6
+    uses: famedly/backend-build-workflows/.github/workflows/publish-crate.yml@v5
+    with:
+      crate_registry_name: "crates-io"
+      crate_registry_index_url: "https://github.com/rust-lang/crates.io-index"
     secrets:
       CRATE_REGISTRY_SSH_PRIVKEY: ${{ secrets.CI_SSH_PRIVATE_KEY }}
       CRATE_REGISTRY_AUTH_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
