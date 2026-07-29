@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.6] - 2026-07-29
+
+### Bug Fixes
+
+- Fix docker image
+
+### Testing
+
+- Fix eventually consistent tests
+
 ## [0.5.5] - 2026-07-24
 
 ### Bug Fixes
