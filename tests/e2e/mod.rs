@@ -4,8 +4,10 @@
 
 use std::{
     any,
+    future::Future,
     path::{Path, PathBuf},
     sync::LazyLock,
+    time::Duration,
 };
 
 #[cfg(feature = "simple-client")]
@@ -150,10 +152,51 @@ pub fn assert_context_msg<T>() -> String {
 }
 
 async fn clean_up_v2_actions<T: TestZitadelHandle + ZitadelHandleV2>(zitadel: &T) {
-    let targets_id = zitadel.list_targets_id().await.expect("Error listing targets");
-    for target_id in targets_id {
-        zitadel.delete_target(&target_id).await.expect("Error deleting target");
+    // Delete and wait until the search projection catches up; otherwise the next
+    // sync may reuse deleted target IDs and fail with "Target not found".
+    for _ in 0..30 {
+        let targets_id = zitadel.list_targets_id().await.expect("Error listing targets");
+        if targets_id.is_empty() {
+            return;
+        }
+        for target_id in targets_id {
+            zitadel.delete_target(&target_id).await.expect("Error deleting target");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    panic!("timed out waiting for v2 targets cleanup");
+}
+
+/// Retry `f` while Zitadel projections catch up after writes.
+///
+/// Retries on both `Err` and panics from `assert!` / `assert_eq!`.
+pub async fn eventually<F, Fut, E>(mut f: F) -> Result<(), E>
+where
+    F: FnMut() -> Fut + Send,
+    Fut: Future<Output = Result<(), E>> + Send,
+{
+    use std::panic::AssertUnwindSafe;
+
+    use futures::FutureExt as _;
+    let attempts = 30;
+
+    for attempt in 1..=attempts {
+        match AssertUnwindSafe(f()).catch_unwind().await {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(err)) => {
+                if attempt == attempts {
+                    return Err(err);
+                }
+            }
+            Err(panic) => {
+                if attempt == attempts {
+                    std::panic::resume_unwind(panic);
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    unreachable!("loop always returns on the final attempt")
 }
 
 pub async fn get_zitadel_mock() -> MockServer {

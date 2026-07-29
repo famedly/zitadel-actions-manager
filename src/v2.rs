@@ -166,7 +166,7 @@ pub async fn sync<Z: ZitadelHandleV2>(
     // 4. Delete Targets that are marked as null
     for (id, name) in names_to_delete
         .into_iter()
-        .filter_map(|name| Some((existing_targets.get(&name)?.clone(), name)))
+        .filter_map(|name| pre_existing_targets.remove(&name).map(|target| (target.id, name)))
     {
         info!(%id, %name, "Deleting action");
         zitadel.delete_target(&id).await?;

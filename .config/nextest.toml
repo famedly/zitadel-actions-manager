@@ -20,12 +20,12 @@ filter = "test(e2e)"
 setup = "start-e2e-env"
 
 [[profile.default.overrides]]
-filter = "test(e2e::v1)"
+filter = "test(e2e::v1) | test(test_e2e_binary_v1)"
 test-group = "v1"
 
-# Running v2 tests sequentially because there's a race condition
+# Running v2 tests sequentially because targets/executions are instance-wide
 [[profile.default.overrides]]
-filter = "test(e2e::v2)"
+filter = "test(e2e::v2) | test(test_e2e_binary_v2)"
 test-group = "v2"
 
 [test-groups]

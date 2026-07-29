@@ -21,7 +21,9 @@ use wiremock::{
 use zitadel_actions_manager::simple_zitadel_client::SimpleZitadelClient;
 use zitadel_actions_manager::v2;
 
-use super::{assert_context_msg, create_context, Result, TestContext, TestZitadelHandle};
+use super::{
+    assert_context_msg, create_context, eventually, Result, TestContext, TestZitadelHandle,
+};
 use crate::e2e::get_zitadel_mock;
 
 async fn test_v2<T: TestZitadelHandle>(
@@ -50,84 +52,92 @@ async fn test_v2<T: TestZitadelHandle>(
         .await
         .whatever_context("Error syncing the targets")?;
 
-    let mut targets_map = HashMap::new();
+    eventually(|| async {
+        let mut targets_map = HashMap::new();
 
-    for (target_name, target) in targets.iter() {
-        let synced_target = context
-            .zitadel_handle
-            .search_target_by_name(target_name)
-            .await
-            .whatever_context("Error searching target by name")?
-            .with_whatever_context(|| {
-                format!("{}: Target '{target_name}' not found in zitadel", any::type_name::<T>())
-            });
+        for (target_name, target) in targets.iter() {
+            let synced_target = context
+                .zitadel_handle
+                .search_target_by_name(target_name)
+                .await
+                .whatever_context("Error searching target by name")?
+                .with_whatever_context(|| {
+                    format!(
+                        "{}: Target '{target_name}' not found in zitadel",
+                        any::type_name::<T>()
+                    )
+                });
 
-        if target.is_none() {
-            assert!(
-                synced_target.is_err(),
-                "{}: Target '{target_name}' should be deleted",
-                any::type_name::<T>()
+            if target.is_none() {
+                assert!(
+                    synced_target.is_err(),
+                    "{}: Target '{target_name}' should be deleted",
+                    any::type_name::<T>()
+                );
+                continue;
+            }
+
+            let synced_target = synced_target?;
+            targets_map.insert(synced_target.id, target_name.clone());
+
+            assert_eq!(&synced_target.name, target_name, "{}", assert_context_msg::<T>());
+            assert_eq!(
+                synced_target.target_type,
+                target.as_ref().unwrap().target_type,
+                "{}",
+                assert_context_msg::<T>()
             );
-            continue;
+            assert_eq!(
+                synced_target.timeout,
+                target.as_ref().unwrap().timeout,
+                "{}",
+                assert_context_msg::<T>()
+            );
+            assert_eq!(
+                synced_target.endpoint,
+                target.as_ref().unwrap().endpoint.to_string(),
+                "{}",
+                assert_context_msg::<T>()
+            );
         }
 
-        let synced_target = synced_target?;
-        targets_map.insert(synced_target.id, target_name.clone());
+        tracing::info!("targets_map: {:?}", targets_map);
 
-        assert_eq!(&synced_target.name, target_name, "{}", assert_context_msg::<T>());
-        assert_eq!(
-            synced_target.target_type,
-            target.as_ref().unwrap().target_type,
-            "{}",
-            assert_context_msg::<T>()
-        );
-        assert_eq!(
-            synced_target.timeout,
-            target.as_ref().unwrap().timeout,
-            "{}",
-            assert_context_msg::<T>()
-        );
-        assert_eq!(
-            synced_target.endpoint,
-            target.as_ref().unwrap().endpoint.to_string(),
-            "{}",
-            assert_context_msg::<T>()
-        );
-    }
+        let mut synced_executions: Vec<_> = context
+            .zitadel_handle
+            .list_executions()
+            .await
+            .with_whatever_context(|_| {
+                format!("{}: Execution not found in zitadel", any::type_name::<T>())
+            })?
+            .into_iter()
+            // .filter(|execution| !execution.targets.is_empty())
+            .map(|mut execution| {
+                execution.targets.iter_mut().for_each(|target| {
+                    *target = targets_map
+                        .get(target)
+                        .expect(&format!("Target '{target}' not found in targets_map"))
+                        .clone();
+                });
+                execution
+            })
+            .collect();
 
-    tracing::info!("targets_map: {:?}", targets_map);
+        // Execution with empty targets should be removed
+        let mut executions = executions
+            .iter()
+            .filter(|execution| !execution.targets.is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
 
-    let mut synced_executions: Vec<_> = context
-        .zitadel_handle
-        .list_executions()
-        .await
-        .with_whatever_context(|_| {
-            format!("{}: Execution not found in zitadel", any::type_name::<T>())
-        })?
-        .into_iter()
-        .map(|mut execution| {
-            execution.targets.iter_mut().for_each(|target| {
-                *target = targets_map
-                    .get(target)
-                    .expect(&format!("Target '{target}' not found in targets_map"))
-                    .clone();
-            });
-            execution
-        })
-        .collect();
+        executions.sort();
+        synced_executions.sort();
 
-    // Execution with empty targets should be removed
-    let mut executions = executions
-        .into_iter()
-        .filter(|execution| !execution.targets.is_empty())
-        .collect::<Vec<_>>();
+        assert_eq!(synced_executions, executions, "{}", assert_context_msg::<T>());
 
-    executions.sort();
-    synced_executions.sort();
-
-    assert_eq!(synced_executions, executions, "{}", assert_context_msg::<T>());
-
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 #[cfg_attr(feature = "famedly-zitadel-rust-client",test_case(PhantomData::<Zitadel>; "zrc"))]
