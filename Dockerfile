@@ -8,7 +8,7 @@ COPY . /app
 WORKDIR /app
 RUN cargo auditable build --features cli --release --bins
 
-FROM debian:bookworm-slim AS zitadel-actions-manager
+FROM debian:trixie-slim AS zitadel-actions-manager
 RUN apt update && apt install ca-certificates -y
 WORKDIR /opt/zitadel-actions-sync
 COPY --from=builder /app/target/release/zitadel-actions-sync /usr/local/bin/zitadel-actions-sync
