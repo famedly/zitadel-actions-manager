@@ -13,15 +13,15 @@ use std::{
 #[cfg(feature = "simple-client")]
 use famedly_zitadel_rust_client::v2::authentication::Token;
 #[cfg(feature = "famedly-zitadel-rust-client")]
-use famedly_zitadel_rust_client::v2::{organization::V2AddOrganizationRequest, Zitadel};
+use famedly_zitadel_rust_client::v2::{Zitadel, organization::V2AddOrganizationRequest};
 #[cfg(any(feature = "simple-client", feature = "famedly-zitadel-rust-client"))]
 use reqwest_middleware::ClientBuilder;
 use serde_json::json;
 use snafu::{OptionExt as _, ResultExt as _};
 use url::Url;
 use wiremock::{
-    matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
+    matchers::{method, path},
 };
 #[cfg(feature = "simple-client")]
 use zitadel_actions_manager::simple_zitadel_client::SimpleZitadelClient;
@@ -152,8 +152,9 @@ pub fn assert_context_msg<T>() -> String {
 }
 
 async fn clean_up_v2_actions<T: TestZitadelHandle + ZitadelHandleV2>(zitadel: &T) {
-    // Delete and wait until the search projection catches up; otherwise the next
-    // sync may reuse deleted target IDs and fail with "Target not found".
+    // Delete and wait until the search projection catches up; otherwise the
+    // next sync may reuse deleted target IDs and fail with "Target not
+    // found".
     for _ in 0..30 {
         let targets_id = zitadel.list_targets_id().await.expect("Error listing targets");
         if targets_id.is_empty() {

@@ -8,9 +8,9 @@
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Only run vergen when building the CLI (main.rs); the lib doesn't use build
-    // info and vergen can fail in environments without git (e.g. when used as a
-    // dependency).
+    // Only run vergen when building the CLI (main.rs); the lib doesn't use
+    // build info and vergen can fail in environments without git (e.g. when
+    // used as a dependency).
     if std::env::var("CARGO_FEATURE_CLI").is_ok() {
         vergen::EmitBuilder::builder()
             .fail_on_error()

@@ -5,11 +5,11 @@
 //! [`reqwest`]-based simple client, with no reauth functionality. Used by the
 //! CLI tool.
 
-use famedly_rust_utils::{reqwest::*, BaseUrl, GenericCombinators};
+use famedly_rust_utils::{BaseUrl, GenericCombinators, reqwest::*};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
 
-use crate::{instrument, zitadel::*, SpanTraceWrapper};
+use crate::{SpanTraceWrapper, instrument, zitadel::*};
 
 /// Header for Zitadel organization ID
 const HEADER_ZITADEL_ORGANIZATION_ID: &str = "x-zitadel-orgid";
@@ -22,7 +22,7 @@ pub struct SimpleZitadelClient {
     url: BaseUrl,
 }
 
-use reqwest::header::{HeaderMap, AUTHORIZATION};
+use reqwest::header::{AUTHORIZATION, HeaderMap};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub), context(suffix(false)))]
@@ -114,7 +114,7 @@ impl SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("v2beta/actions/targets/search").context(Url)?)
+            .post(self.url.join("v2/actions/targets/search").context(Url)?)
             .json(&serde_json::json!({
                 "pagination": { "limit": 1000 },
                 "filters": []
@@ -168,6 +168,18 @@ pub enum SimpleZitadelClientError {
         #[snafu(implicit)]
         context: SpanTraceWrapper,
     },
+    #[snafu(display("{message}"))]
+    InvalidExpirationDate {
+        message: String,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+}
+
+impl From<InvalidExpirationDateError> for SimpleZitadelClientError {
+    fn from(error: InvalidExpirationDateError) -> Self {
+        InvalidExpirationDate { message: error.to_string() }.build()
+    }
 }
 
 impl SimpleZitadelClientError {
@@ -179,6 +191,7 @@ impl SimpleZitadelClientError {
             Self::ReqwestService { context, .. } => context,
             Self::Url { context, .. } => context,
             Self::JWT { context, .. } => context,
+            Self::InvalidExpirationDate { context, .. } => context,
         }
     }
 }
@@ -365,7 +378,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
     #[instrument(skip(self))]
     async fn create_target(&self, req: CreateTarget) -> Result<TargetCreated, Self::Err> {
         self.client
-            .post(self.url.join("v2beta/actions/targets").context(Url)?)
+            .post(self.url.join("v2/actions/targets").context(Url)?)
             .json(&req)
             .send()
             .await
@@ -386,7 +399,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("v2beta/actions/targets/search").context(Url)?)
+            .post(self.url.join("v2/actions/targets/search").context(Url)?)
             .json(&serde_json::json!({
                 "pagination": { "limit": 1 },
                 "filters": [{
@@ -412,7 +425,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
     #[instrument(skip(self))]
     async fn update_target(&self, id: &str, req: UpdateTarget) -> Result<TargetUpdated, Self::Err> {
         self.client
-            .post(self.url.join("v2beta/actions/targets/").and_then(|u| u.join(id)).context(Url)?)
+            .post(self.url.join("v2/actions/targets/").and_then(|u| u.join(id)).context(Url)?)
             .json(&req)
             .send()
             .await
@@ -428,7 +441,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
     #[instrument(skip(self))]
     async fn delete_target(&self, id: &str) -> Result<(), Self::Err> {
         self.client
-            .delete(self.url.join("v2beta/actions/targets/").and_then(|u| u.join(id)).context(Url)?)
+            .delete(self.url.join("v2/actions/targets/").and_then(|u| u.join(id)).context(Url)?)
             .send()
             .await
             .context(ReqwestTransport)?
@@ -441,7 +454,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
     #[instrument(skip(self))]
     async fn set_execution(&self, req: Execution) -> Result<(), Self::Err> {
         self.client
-            .put(self.url.join("v2beta/actions/executions").context(Url)?)
+            .put(self.url.join("v2/actions/executions").context(Url)?)
             .json(&req)
             .send()
             .await
@@ -460,7 +473,7 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
         }
         Ok(self
             .client
-            .post(self.url.join("v2beta/actions/executions/search").context(Url)?)
+            .post(self.url.join("v2/actions/executions/search").context(Url)?)
             .json(&serde_json::json!({
                 "pagination": { "limit": 1000 }
             }))
@@ -475,6 +488,88 @@ impl ZitadelHandleV2 for SimpleZitadelClient {
             .context(Serde)?
             .executions
             .unwrap_or_default())
+    }
+
+    #[instrument(skip(self))]
+    async fn list_public_keys(&self, target_id: &str) -> Result<Vec<FoundPublicKey>, Self::Err> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Response {
+            #[serde(default)]
+            public_keys: Vec<FoundPublicKey>,
+        }
+        Ok(self
+            .client
+            .post(
+                self.url
+                    .join(&format!("v2/actions/targets/{target_id}/publickeys/search"))
+                    .context(Url)?,
+            )
+            .json(&serde_json::json!({
+                // TODO: Make this configurable
+                "pagination": { "limit": 1000 }
+            }))
+            .send()
+            .await
+            .context(ReqwestTransport)?
+            .error_for_status_with_body()
+            .await
+            .context(ReqwestService)?
+            .json::<Response>()
+            .await
+            .context(Serde)?
+            .public_keys)
+    }
+
+    #[instrument(skip_all, fields(target_id))]
+    async fn add_public_key(
+        &self,
+        target_id: &str,
+        req: AddPublicKey,
+    ) -> Result<PublicKeyAdded, Self::Err> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body {
+            public_key: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            expiration_date: Option<String>,
+        }
+        self.client
+            .post(
+                self.url
+                    .join(&format!("v2/actions/targets/{target_id}/publickeys"))
+                    .context(Url)?,
+            )
+            .json(&Body {
+                public_key: encode_public_key_pem(&req.public_key),
+                expiration_date: req.expiration_date,
+            })
+            .send()
+            .await
+            .context(ReqwestTransport)?
+            .error_for_status_with_body()
+            .await
+            .context(ReqwestService)?
+            .json::<PublicKeyAdded>()
+            .await
+            .context(Serde)
+    }
+
+    #[instrument(skip(self))]
+    async fn activate_public_key(&self, target_id: &str, key_id: &str) -> Result<(), Self::Err> {
+        self.client
+            .post(
+                self.url
+                    .join(&format!("v2/actions/targets/{target_id}/publickeys/{key_id}/activate"))
+                    .context(Url)?,
+            )
+            .send()
+            .await
+            .context(ReqwestTransport)?
+            .error_for_status_with_body()
+            .await
+            .context(ReqwestService)?;
+        Ok(())
     }
 }
 
@@ -494,7 +589,7 @@ pub async fn auth_with_service_account(
     aud: &str,
     sa: &ServiceAccount,
 ) -> Result<String, SimpleZitadelClientError> {
-    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 
     #[derive(Debug, Clone, Deserialize)]
     struct Response {

@@ -14,15 +14,15 @@ use tokio::fs;
 use tracing_test::traced_test;
 use url::Url;
 use wiremock::{
-    matchers::{method, path, path_regex},
     Mock, ResponseTemplate,
+    matchers::{method, path, path_regex},
 };
 #[cfg(feature = "simple-client")]
 use zitadel_actions_manager::simple_zitadel_client::SimpleZitadelClient;
 use zitadel_actions_manager::{load, sync};
 
 use super::{
-    assert_context_msg, create_context, eventually, Result, TestContext, TestZitadelHandle,
+    Result, TestContext, TestZitadelHandle, assert_context_msg, create_context, eventually,
 };
 use crate::e2e::get_zitadel_mock;
 

@@ -6,7 +6,7 @@ services:
   zitadel:
     container_name: zitadel
     restart: 'unless-stopped'
-    image: 'ghcr.io/zitadel/zitadel:v4.0.1'
+    image: 'ghcr.io/zitadel/zitadel:v4.19.3'
     command: 'start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled'
     environment:
       - 'ZITADEL_FIRSTINSTANCE_MACHINEKEYPATH=/machinekey/service-account.json'
@@ -56,7 +56,7 @@ services:
     volumes:
       - postgresql-data:/var/lib/postgresql/data
     ports:
-      - 9876:5432/tcp
+      - 15432:5432/tcp
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
       interval: 5s

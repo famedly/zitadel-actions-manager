@@ -8,6 +8,17 @@ test_targetius:
     interruptOnError: true
   endpoint: http://example.com
   timeout: 5s
+  payloadType: PAYLOAD_TYPE_JSON
+
+# Example JWE target (provide a PEM via publicKey or publicKeyFile):
+encrypted_target:
+  restCall:
+    interruptOnError: true
+  endpoint: http://example.com/jwe
+  timeout: 5s
+  payloadType: PAYLOAD_TYPE_JWE
+  publicKeyFile: keys/target.pem
+  # publicKeyExpiration: "2027-01-01T00:00:00Z"
 
 # delete test_targetington target if it exists
 test_targetington: null

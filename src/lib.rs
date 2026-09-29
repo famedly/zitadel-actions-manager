@@ -12,15 +12,17 @@
 //! ```
 //! # use zitadel_actions_manager::{Action, LoadedScript, Actions, Flows};
 //! let actions: Actions<LoadedScript> = [(
-//!     "action1".to_owned(),
-//!     Some(Action {
-//!         timeout: None,
-//!         allowed_to_fail: false,
-//!         script: "function action1(ctx, api) {}".to_owned(),
-//!     }),
+//! 	"action1".to_owned(),
+//! 	Some(Action {
+//! 		timeout: None,
+//! 		allowed_to_fail: false,
+//! 		script: "function action1(ctx, api) {}".to_owned(),
+//! 	}),
 //! )]
 //! .into();
-//! let flows: Flows = [("2".into(), [("4".into(), vec!["action1".to_owned()])].into())].into();
+//! let flows: Flows =
+//! 	[("2".into(), [("4".into(), vec!["action1".to_owned()])].into())]
+//! 		.into();
 //! ```
 //! or you can [`load`] them from files:
 //! ```
@@ -51,7 +53,7 @@ use std::{collections::BTreeMap as Map, fmt, fs::File, path::Path};
 
 use as_variant::as_variant;
 use famedly_rust_utils::GenericCombinators;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use snafu::{OptionExt, ResultExt, Snafu};
 use tracing::info;
 // https://github.com/tokio-rs/tracing/issues/2082
@@ -176,7 +178,8 @@ pub async fn sync<Z: ZitadelHandle>(
 
     // 3. Set actions triggers aka "Set trigger actions" in the zitadel doc
     for (flow_type, trigger_types) in flows.into_iter() {
-        // We need to check if triggers have changed, otherwise zitadel call fails
+        // We need to check if triggers have changed, otherwise zitadel call
+        // fails
         let existing_triggers = zitadel.get_triggers(&flow_type, org_id.clone()).await?;
 
         for (trigger_type, action_names) in trigger_types.into_iter() {
@@ -184,7 +187,8 @@ pub async fn sync<Z: ZitadelHandle>(
                 .into_iter()
                 .filter_map(|name| Some(existing_actions.get(&name)?.clone()))
                 .collect::<Vec<_>>()
-                .mutate(|ids| ids.sort()); // TODO: figure out if actions order in a trigger matters
+                .mutate(|ids| ids.sort()); // TODO: figure out if actions order
+            // in a trigger matters
 
             if let Some(trigger) =
                 existing_triggers.iter().find(|trigger| trigger.trigger_type.id == trigger_type)
@@ -247,7 +251,8 @@ pub async fn create_only<Z: ZitadelHandleCreateOnly>(
                 .into_iter()
                 .filter_map(|name| Some(existing_actions.get(&name)?.clone()))
                 .collect::<Vec<_>>()
-                .mutate(|ids| ids.sort()); // TODO: figure out if actions order in a trigger matters
+                .mutate(|ids| ids.sort()); // TODO: figure out if actions order
+            // in a trigger matters
 
             info!(%flow_type, %trigger_type, ?action_ids, "Setting actions trigger");
             zitadel
@@ -275,7 +280,9 @@ pub fn load(
     {
         from_yaml_file(&actions_fname)?
     } else {
-        info!("File {actions_fname:?} doesn't exist, reading only actions referenced in {flows_fname:?}");
+        info!(
+            "File {actions_fname:?} doesn't exist, reading only actions referenced in {flows_fname:?}"
+        );
         Actions::default()
     };
     let loaded_actions = load_actions(dir, actions, &flows)?;
@@ -403,6 +410,12 @@ pub enum ReadYamlFileError {
         #[snafu(implicit)]
         context: SpanTraceWrapper,
     },
+    #[snafu(display("Invalid public key configuration: {message}"))]
+    InvalidPublicKeyConfig {
+        message: String,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
 }
 
 impl ReadYamlFileError {
@@ -413,6 +426,7 @@ impl ReadYamlFileError {
             Self::FileExistVerification { context, .. } => context,
             Self::ReadFile { context, .. } => context,
             Self::OpenFile { context, .. } => context,
+            Self::InvalidPublicKeyConfig { context, .. } => context,
         }
     }
 }

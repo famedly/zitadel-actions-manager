@@ -9,12 +9,12 @@
 //! public and are the result of a [`trait_variant::make`] quirks.
 
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "famedly-zitadel-rust-client")]
 use snafu::Snafu;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-#[cfg(feature = "famedly-zitadel-rust-client")]
-use crate::{instrument, SpanTraceWrapper};
 use crate::{Action, LoadedScript};
+#[cfg(feature = "famedly-zitadel-rust-client")]
+use crate::{SpanTraceWrapper, instrument};
 
 /// Supertrait for all handles defined here.
 pub trait ZitadelInterface {
@@ -143,7 +143,9 @@ pub struct GetTriggersResFlowAction {
 
 /// Zitadel handle necessary for [`crate::v2::sync`].
 #[trait_variant::make(ZitadelHandleV2: Send)]
-pub trait ZitadelHandleV2Prototype: ZitadelInterface + Sync {
+pub trait ZitadelHandleV2Prototype:
+    ZitadelInterface<Err: From<InvalidExpirationDateError>> + Sync
+{
     async fn create_target(&self, req: CreateTarget) -> Result<TargetCreated, Self::Err>;
     async fn search_target_by_name(&self, name: &str) -> Result<Option<FoundTarget>, Self::Err>;
     async fn update_target(&self, id: &str, req: UpdateTarget) -> Result<TargetUpdated, Self::Err>;
@@ -151,12 +153,21 @@ pub trait ZitadelHandleV2Prototype: ZitadelInterface + Sync {
 
     async fn set_execution(&self, req: Execution) -> Result<(), Self::Err>;
     async fn list_executions(&self) -> Result<Vec<Execution>, Self::Err>;
+
+    async fn list_public_keys(&self, target_id: &str) -> Result<Vec<FoundPublicKey>, Self::Err>;
+    async fn add_public_key(
+        &self,
+        target_id: &str,
+        req: AddPublicKey,
+    ) -> Result<PublicKeyAdded, Self::Err>;
+    async fn activate_public_key(&self, target_id: &str, key_id: &str) -> Result<(), Self::Err>;
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetCreated {
     pub id: String,
+    #[serde(default)]
     pub signing_key: String,
 }
 
@@ -168,6 +179,8 @@ pub struct CreateTarget {
     pub target_type: TargetType,
     pub timeout: String,
     pub endpoint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_type: Option<PayloadType>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -179,7 +192,10 @@ pub struct FoundTarget {
     pub target_type: TargetType,
     pub timeout: String,
     pub endpoint: String,
+    #[serde(default)]
     pub signing_key: String,
+    #[serde(default)]
+    pub payload_type: Option<PayloadType>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -190,6 +206,8 @@ pub struct UpdateTarget {
     pub timeout: Option<String>,
     pub endpoint: Option<String>,
     pub expiration_signing_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_type: Option<PayloadType>,
 }
 
 #[allow(non_camel_case_types)]
@@ -197,20 +215,132 @@ pub struct UpdateTarget {
 #[serde(rename_all = "camelCase")]
 pub enum TargetType {
     restWebhook {
-        #[serde(default)]
+        #[serde(default, rename = "interruptOnError")]
         interrupt_on_error: bool,
     },
     restCall {
-        #[serde(default)]
+        #[serde(default, rename = "interruptOnError")]
         interrupt_on_error: bool,
     },
     restAsync {},
 }
 
+/// How Zitadel formats and secures the action payload sent to a target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub enum PayloadType {
+    #[serde(rename = "PAYLOAD_TYPE_UNSPECIFIED")]
+    Unspecified,
+    #[serde(rename = "PAYLOAD_TYPE_JSON")]
+    Json,
+    #[serde(rename = "PAYLOAD_TYPE_JWT")]
+    Jwt,
+    #[serde(rename = "PAYLOAD_TYPE_JWE")]
+    Jwe,
+}
+
+impl PayloadType {
+    /// Effective payload type used for sync comparisons (UNSPECIFIED ≡ JSON).
+    #[must_use]
+    pub fn normalized(self) -> Self {
+        match self {
+            Self::Unspecified => Self::Json,
+            other => other,
+        }
+    }
+
+    /// Compare optional payload types with Zitadel defaults
+    /// (missing/UNSPECIFIED ≡ JSON).
+    #[must_use]
+    pub fn eq_optional(lhs: Option<Self>, rhs: Option<Self>) -> bool {
+        lhs.unwrap_or(Self::Json).normalized() == rhs.unwrap_or(Self::Json).normalized()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetUpdated {
-    pub signing_key: String,
+    #[serde(default)]
+    pub signing_key: Option<String>,
+}
+
+/// Request to upload a public key (PEM) for [`PayloadType::Jwe`] targets.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddPublicKey {
+    /// PEM-encoded RSA or EC public key (clients base64-encode for the API).
+    pub public_key: String,
+    pub expiration_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicKeyAdded {
+    pub key_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundPublicKey {
+    pub key_id: String,
+    #[serde(default)]
+    pub active: bool,
+    /// Base64-encoded PEM as returned by Zitadel.
+    #[serde(default)]
+    pub public_key: Option<String>,
+    #[serde(default)]
+    pub fingerprint: Option<String>,
+    #[serde(default)]
+    pub expiration_date: Option<String>,
+}
+
+/// Encode a PEM public key as base64 for the Action Service API.
+#[must_use]
+pub fn encode_public_key_pem(pem: &str) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(pem.as_bytes())
+}
+
+/// Decode a base64 public key from the Action Service API into PEM
+/// bytes/string.
+pub fn decode_public_key_pem(encoded: &str) -> Result<String, base64::DecodeError> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Normalize PEM for equality checks (ignore whitespace).
+#[must_use]
+pub fn normalize_pem(pem: &str) -> String {
+    pem.split_whitespace().collect()
+}
+
+/// Invalid RFC 3339 public-key expiration date.
+#[derive(Debug, Snafu)]
+#[snafu(display("Invalid public key expiration date '{value}': expected RFC 3339"))]
+pub struct InvalidExpirationDateError {
+    /// The unparsable value.
+    pub value: String,
+}
+
+/// Parse a public-key expiration date as RFC 3339.
+pub fn parse_expiration_date(value: &str) -> Result<OffsetDateTime, InvalidExpirationDateError> {
+    OffsetDateTime::parse(value, &Rfc3339)
+        .map_err(|_| InvalidExpirationDateSnafu { value: value.to_owned() }.build())
+}
+
+/// Compare optional public-key expiration dates as RFC 3339 instants
+/// (so `Z` vs `+00:00` and fractional-second differences still match).
+///
+/// Returns an error if either present value is not valid RFC 3339.
+pub fn expiration_dates_eq(
+    lhs: Option<&str>,
+    rhs: Option<&str>,
+) -> Result<bool, InvalidExpirationDateError> {
+    Ok(match (lhs, rhs) {
+        (None, None) => true,
+        (Some(lhs), Some(rhs)) => parse_expiration_date(lhs)? == parse_expiration_date(rhs)?,
+        _ => false,
+    })
 }
 
 // `serde_yaml` doesn't support nested enums, thus this `singleton_map`
@@ -256,6 +386,58 @@ fn test_nested_enum_serde_yaml() {
     let parsed_execution =
         serde_yaml::from_str(&serde_json::to_string(&execution).unwrap()).unwrap();
     assert_eq!(execution, parsed_execution);
+}
+
+#[test]
+fn target_updated_signing_key_is_optional() {
+    let updated: TargetUpdated =
+        serde_json::from_str(r#"{"changeDate":"2026-09-29T14:03:54.534194Z"}"#).unwrap();
+    assert!(updated.signing_key.is_none());
+}
+
+#[test]
+fn payload_type_serde_matches_zitadel_wire_names() {
+    for (variant, wire) in [
+        (PayloadType::Unspecified, "PAYLOAD_TYPE_UNSPECIFIED"),
+        (PayloadType::Json, "PAYLOAD_TYPE_JSON"),
+        (PayloadType::Jwt, "PAYLOAD_TYPE_JWT"),
+        (PayloadType::Jwe, "PAYLOAD_TYPE_JWE"),
+    ] {
+        assert_eq!(serde_json::to_value(variant).unwrap(), serde_json::json!(wire));
+        let parsed: PayloadType = serde_json::from_value(serde_json::json!(wire)).unwrap();
+        assert_eq!(parsed, variant);
+    }
+}
+
+#[test]
+fn payload_type_eq_optional_treats_defaults_as_json() {
+    assert!(PayloadType::eq_optional(None, Some(PayloadType::Json)));
+    assert!(PayloadType::eq_optional(Some(PayloadType::Unspecified), Some(PayloadType::Json)));
+    assert!(PayloadType::eq_optional(Some(PayloadType::Jwt), Some(PayloadType::Jwt)));
+    assert!(!PayloadType::eq_optional(Some(PayloadType::Jwt), Some(PayloadType::Json)));
+}
+
+#[test]
+fn expiration_dates_eq_compares_rfc3339_instants() {
+    assert!(expiration_dates_eq(None, None).unwrap());
+    assert!(!expiration_dates_eq(None, Some("2027-01-01T00:00:00Z")).unwrap());
+    assert!(
+        expiration_dates_eq(Some("2027-01-01T00:00:00Z"), Some("2027-01-01T00:00:00Z")).unwrap()
+    );
+    assert!(
+        expiration_dates_eq(Some("2027-01-01T00:00:00Z"), Some("2027-01-01T00:00:00.000Z"),)
+            .unwrap()
+    );
+    assert!(
+        expiration_dates_eq(Some("2027-01-01T00:00:00Z"), Some("2027-01-01T00:00:00+00:00"),)
+            .unwrap()
+    );
+    assert!(
+        !expiration_dates_eq(Some("2027-01-01T00:00:00Z"), Some("2028-01-01T00:00:00Z"),).unwrap()
+    );
+    assert!(expiration_dates_eq(Some("not-a-date"), Some("not-a-date")).is_err());
+    assert!(parse_expiration_date("2027-01-01T00:00:00Z").is_ok());
+    assert!(parse_expiration_date("not-a-date").is_err());
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
@@ -314,6 +496,19 @@ pub enum FamedlyZrcError {
         #[snafu(implicit)]
         context: SpanTraceWrapper,
     },
+    #[snafu(display("{message}"))]
+    InvalidExpirationDate {
+        message: String,
+        #[snafu(implicit)]
+        context: SpanTraceWrapper,
+    },
+}
+
+#[cfg(feature = "famedly-zitadel-rust-client")]
+impl From<InvalidExpirationDateError> for FamedlyZrcError {
+    fn from(error: InvalidExpirationDateError) -> Self {
+        InvalidExpirationDate { message: error.to_string() }.build()
+    }
 }
 
 #[cfg(feature = "famedly-zitadel-rust-client")]
@@ -372,8 +567,10 @@ impl ZitadelHandle for famedly_zitadel_rust_client::v2::Zitadel {
         self.list_actions(
             org_id,
             None,
-            Some(vec![V1ActionQuery::new()
-                .with_action_name_query(V1ActionNameQuery::new().with_name(name.into()))]),
+            Some(vec![
+                V1ActionQuery::new()
+                    .with_action_name_query(V1ActionNameQuery::new().with_name(name.into())),
+            ]),
         )
         .context(Zrc)?
         .next()
@@ -491,30 +688,25 @@ use {
 impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
     #[instrument(skip_all, fields(name = req_.name))]
     async fn create_target(&self, req_: CreateTarget) -> Result<TargetCreated, Self::Err> {
-        let mut req = V2betaCreateTargetRequest::new()
-            .with_name(req_.name)
-            .with_timeout(req_.timeout)
-            .with_endpoint(req_.endpoint);
+        let mut req =
+            V2CreateTargetRequest::new(req_.name, req_.endpoint).with_timeout(req_.timeout);
+        if let Some(payload_type) = req_.payload_type {
+            req = req.with_payload_type(payload_type.into());
+        }
         match req_.target_type {
-            TargetType::restWebhook { interrupt_on_error } => req.set_rest_webhook(
-                V2betaRestWebhook::new().with_interrupt_on_error(interrupt_on_error),
-            ),
+            TargetType::restWebhook { interrupt_on_error } => req
+                .set_rest_webhook(V2RestWebhook::new().with_interrupt_on_error(interrupt_on_error)),
             TargetType::restCall { interrupt_on_error } => {
-                req.set_rest_call(
-                    V2betaRestCall::new().with_interrupt_on_error(interrupt_on_error),
-                );
+                req.set_rest_call(V2RestCall::new().with_interrupt_on_error(interrupt_on_error));
             }
 
-            TargetType::restAsync {} => req.set_rest_async(V2betaRestAsync::new()),
+            TargetType::restAsync {} => req.set_rest_async(V2RestAsync::new()),
         }
 
         let res = self.create_target(&req).await.context(Zrc)?;
         Ok(TargetCreated {
             id: res.id().cloned().context(MissingField { field: "id" })?,
-            signing_key: res
-                .signing_key()
-                .cloned()
-                .context(MissingField { field: "signing_key" })?,
+            signing_key: res.signing_key().cloned().unwrap_or_default(),
         })
     }
 
@@ -528,26 +720,19 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
         let mut req = Req::new()
             .chain_opt(req_.timeout, Req::with_timeout)
             .chain_opt(req_.endpoint, Req::with_endpoint)
-            .chain_opt(req_.expiration_signing_key, Req::with_expiration_signing_key);
+            .chain_opt(req_.expiration_signing_key, Req::with_expiration_signing_key)
+            .chain_opt(req_.payload_type.map(Into::into), Req::with_payload_type);
         match req_.target_type {
-            Some(TargetType::restWebhook { interrupt_on_error }) => req.set_rest_webhook(
-                V2betaRestWebhook::new().with_interrupt_on_error(interrupt_on_error),
-            ),
+            Some(TargetType::restWebhook { interrupt_on_error }) => req
+                .set_rest_webhook(V2RestWebhook::new().with_interrupt_on_error(interrupt_on_error)),
             Some(TargetType::restCall { interrupt_on_error }) => {
-                req.set_rest_call(
-                    V2betaRestCall::new().with_interrupt_on_error(interrupt_on_error),
-                );
+                req.set_rest_call(V2RestCall::new().with_interrupt_on_error(interrupt_on_error));
             }
-            Some(TargetType::restAsync {}) => req.set_rest_async(V2betaRestAsync::new()),
+            Some(TargetType::restAsync {}) => req.set_rest_async(V2RestAsync::new()),
             None => {}
         }
         let res = self.update_target(id, &req).await.context(Zrc)?;
-        Ok(TargetUpdated {
-            signing_key: res
-                .signing_key()
-                .cloned()
-                .context(MissingField { field: "signing_key" })?,
-        })
+        Ok(TargetUpdated { signing_key: res.signing_key().cloned() })
     }
 
     #[instrument(skip(self))]
@@ -561,10 +746,10 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
         let target = std::pin::pin!(self.list_targets(
             &Some(PaginationParams::default().with_page_size(1)),
             &None,
-            &Some(vec![V2betaTargetSearchFilter::new().with_target_name_filter(
-                V2betaTargetNameFilter::new()
+            &Some(vec![V2TargetSearchFilter::new().with_target_name_filter(
+                V2TargetNameFilter::new()
                     .with_target_name(name.to_owned())
-                    .with_method(V2betaTextFilterMethod::TEXT_FILTER_METHOD_EQUALS),
+                    .with_method(V2TextFilterMethod::TEXT_FILTER_METHOD_EQUALS),
             )]),
         ))
         .next()
@@ -596,10 +781,8 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
             target_type,
             timeout: target.timeout().cloned().context(MissingField { field: "timeout" })?,
             endpoint: target.endpoint().cloned().context(MissingField { field: "endpoint" })?,
-            signing_key: target
-                .signing_key()
-                .cloned()
-                .context(MissingField { field: "signing_key" })?,
+            signing_key: target.signing_key().cloned().unwrap_or_default(),
+            payload_type: target.payload_type().cloned().map(Into::into),
         }))
     }
 
@@ -608,33 +791,27 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
     #[instrument(skip_all)]
     async fn set_execution(&self, req: Execution) -> Result<(), Self::Err> {
         let condition = match req.condition {
-            ExecutionCondition::request(cnd) => V2betaCondition::new().with_request(match cnd {
-                RequestResponseCondition::method(x) => V2betaRequestExecution::new().with_method(x),
-                RequestResponseCondition::service(x) => {
-                    V2betaRequestExecution::new().with_service(x)
-                }
-                RequestResponseCondition::all(_) => V2betaRequestExecution::new().with_all(true),
+            ExecutionCondition::request(cnd) => V2Condition::new().with_request(match cnd {
+                RequestResponseCondition::method(x) => V2RequestExecution::new().with_method(x),
+                RequestResponseCondition::service(x) => V2RequestExecution::new().with_service(x),
+                RequestResponseCondition::all(_) => V2RequestExecution::new().with_all(true),
             }),
-            ExecutionCondition::response(cnd) => V2betaCondition::new().with_response(match cnd {
-                RequestResponseCondition::method(x) => {
-                    V2betaResponseExecution::new().with_method(x)
-                }
-                RequestResponseCondition::service(x) => {
-                    V2betaResponseExecution::new().with_service(x)
-                }
-                RequestResponseCondition::all(_) => V2betaResponseExecution::new().with_all(true),
+            ExecutionCondition::response(cnd) => V2Condition::new().with_response(match cnd {
+                RequestResponseCondition::method(x) => V2ResponseExecution::new().with_method(x),
+                RequestResponseCondition::service(x) => V2ResponseExecution::new().with_service(x),
+                RequestResponseCondition::all(_) => V2ResponseExecution::new().with_all(true),
             }),
             ExecutionCondition::function { name } => {
-                V2betaCondition::new().with_function(V2betaFunctionExecution::new().with_name(name))
+                V2Condition::new().with_function(V2FunctionExecution::new().with_name(name))
             }
-            ExecutionCondition::event(cnd) => V2betaCondition::new().with_event(match cnd {
-                EventCondition::event(x) => V2betaEventExecution::new().with_event(x),
-                EventCondition::group(x) => V2betaEventExecution::new().with_group(x),
-                EventCondition::all(_) => V2betaEventExecution::new().with_all(true),
+            ExecutionCondition::event(cnd) => V2Condition::new().with_event(match cnd {
+                EventCondition::event(x) => V2EventExecution::new().with_event(x),
+                EventCondition::group(x) => V2EventExecution::new().with_group(x),
+                EventCondition::all(_) => V2EventExecution::new().with_all(true),
             }),
         };
         self.set_execution(
-            &V2betaSetExecutionRequest::new().with_condition(condition).with_targets(req.targets),
+            &V2SetExecutionRequest::new().with_condition(condition).with_targets(req.targets),
         )
         .await
         .context(Zrc)?;
@@ -692,5 +869,78 @@ impl ZitadelHandleV2 for famedly_zitadel_rust_client::v2::Zitadel {
             })
             .try_collect()
             .await
+    }
+
+    #[instrument(skip(self))]
+    async fn list_public_keys(&self, target_id: &str) -> Result<Vec<FoundPublicKey>, Self::Err> {
+        let res = self
+            .list_public_keys(
+                target_id,
+                &ActionServiceListPublicKeysBody::new()
+                    .with_pagination(V2PaginationRequest::new().with_limit(1000)),
+            )
+            .await
+            .context(Zrc)?;
+        Ok(res
+            .public_keys()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|key| {
+                Some(FoundPublicKey {
+                    key_id: key.key_id().cloned()?,
+                    active: key.active().copied().unwrap_or(false),
+                    public_key: key.public_key().cloned(),
+                    fingerprint: key.fingerprint().cloned(),
+                    expiration_date: key.expiration_date().cloned(),
+                })
+            })
+            .collect())
+    }
+
+    #[instrument(skip_all, fields(target_id))]
+    async fn add_public_key(
+        &self,
+        target_id: &str,
+        req: AddPublicKey,
+    ) -> Result<PublicKeyAdded, Self::Err> {
+        let mut body = ActionServiceAddPublicKeyBody::new(encode_public_key_pem(&req.public_key));
+        if let Some(expiration) = req.expiration_date {
+            body = body.with_expiration_date(expiration);
+        }
+        let res = self.add_public_key(target_id, &body).await.context(Zrc)?;
+        Ok(PublicKeyAdded {
+            key_id: res.key_id().cloned().context(MissingField { field: "key_id" })?,
+        })
+    }
+
+    #[instrument(skip(self))]
+    async fn activate_public_key(&self, target_id: &str, key_id: &str) -> Result<(), Self::Err> {
+        self.activate_public_key(target_id, key_id).await.context(Zrc)?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "famedly-zitadel-rust-client")]
+impl From<PayloadType> for V2PayloadType {
+    fn from(value: PayloadType) -> Self {
+        match value {
+            PayloadType::Unspecified => Self::PAYLOAD_TYPE_UNSPECIFIED,
+            PayloadType::Json => Self::PAYLOAD_TYPE_JSON,
+            PayloadType::Jwt => Self::PAYLOAD_TYPE_JWT,
+            PayloadType::Jwe => Self::PAYLOAD_TYPE_JWE,
+        }
+    }
+}
+
+#[cfg(feature = "famedly-zitadel-rust-client")]
+impl From<V2PayloadType> for PayloadType {
+    fn from(value: V2PayloadType) -> Self {
+        match value {
+            V2PayloadType::PAYLOAD_TYPE_UNSPECIFIED => Self::Unspecified,
+            V2PayloadType::PAYLOAD_TYPE_JSON => Self::Json,
+            V2PayloadType::PAYLOAD_TYPE_JWT => Self::Jwt,
+            V2PayloadType::PAYLOAD_TYPE_JWE => Self::Jwe,
+        }
     }
 }

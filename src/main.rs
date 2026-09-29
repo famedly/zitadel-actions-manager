@@ -11,15 +11,14 @@ use famedly_rust_utils::{BaseUrl, LevelFilter};
 use snafu::{OptionExt as _, Snafu};
 use tracing::info;
 use zitadel_actions_manager::{
-    from_yaml_file, instrument, load,
+    Actions, DEFAULT_ACTIONS_FILE, DEFAULT_FLOWS_FILE, Flows, LoadActionsV1Error, LoadedScript,
+    ReadYamlFileError, SpanTraceWrapper, from_yaml_file, instrument, load,
     simple_zitadel_client::{
-        auth_with_service_account, ServiceAccount, SimpleZitadelClient,
-        SimpleZitadelClientCreationError, SimpleZitadelClientError,
+        ServiceAccount, SimpleZitadelClient, SimpleZitadelClientCreationError,
+        SimpleZitadelClientError, auth_with_service_account,
     },
     sync,
     v2::{self, DEFAULT_EXECUTIONS_FILE, DEFAULT_TARGETS_FILE},
-    Actions, Flows, LoadActionsV1Error, LoadedScript, ReadYamlFileError, SpanTraceWrapper,
-    DEFAULT_ACTIONS_FILE, DEFAULT_FLOWS_FILE,
 };
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), ", git rev ", env!("VERGEN_GIT_SHA"));
@@ -198,7 +197,7 @@ pub fn init_tracing(
     use std::str::FromStr;
 
     use tracing::Level;
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+    use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
     let raw_env_filter = format!(
         "info,{}={level}{}",
