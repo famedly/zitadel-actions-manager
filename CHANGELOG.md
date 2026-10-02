@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-10-02
+
+### Features
+
+- Add support to payload type
+
 ## [0.5.6] - 2026-07-29
 
 ### Bug Fixes
