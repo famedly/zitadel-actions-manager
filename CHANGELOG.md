@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2026-10-27
+
+### Miscellaneous Tasks
+
+- Update webpki-root-certs to address VUL-29
+
 ## [0.6.0] - 2026-10-02
 
 ### Features
