@@ -2388,9 +2388,9 @@ dependencies = [
 
 [[package]]
 name = "url-macro"
-version = "0.2.3"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46f8fd02d998459be6962aa74831961202461c1545cf056725e2c73b9f860c91"
+checksum = "da593fb8edb8583e3a2ec2d97c734fc052aaa6270860dcbebd0c2a862a603ef0"
 dependencies = [
  "url",
 ]
